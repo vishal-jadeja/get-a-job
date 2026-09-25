@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#132a2a"><meta name="app-token" content="__TOKEN__">
+  <title>JobPilot — Your next chapter</title><link rel="icon" href="/icon.svg"><link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#overview"><span class="brand-icon">↗</span> JobPilot<span class="tag">LOCAL</span></a>
+    <p class="nav-label">YOUR WORKSPACE</p>
+    <nav aria-label="Main navigation">
+      <a href="#overview" data-view="overview"><span>◫</span> Overview</a>
+      <a href="#profile" data-view="profile"><span>◎</span> Career profile</a>
+      <a href="#discover" data-view="discover"><span>⌕</span> Discover jobs <b id="nav-jobs">0</b></a>
+      <a href="#applications" data-view="applications"><span>▤</span> Applications <b id="nav-apps">0</b></a>
+      <a href="#analytics" data-view="analytics"><span>▥</span> Analytics</a>
+      <a href="#automation" data-view="automation"><span>⚡</span> Automation</a>
+      <a href="#sources" data-view="sources"><span>⊞</span> Job sources</a>
+    </nav>
+    <div class="sidebar-bottom"><span class="online-dot"></span> Runs on your computer<p>No subscription. No API bill.<br>Your experience stays yours.</p><div id="sidebar-user">Your next chapter starts here.</div></div>
+  </aside>
+  <div class="workspace"><header class="topbar"><div><span class="breadcrumb">Workspace</span><span class="slash">/</span><span id="page-label">Overview</span></div><div class="top-actions"><span class="local-pill"><i></i> Local workspace</span><button class="button small" id="export-top">Export data ↗</button></div></header>
+    <main id="main" tabindex="-1"><div class="loading">Opening your workspace…</div></main>
+    <footer>Made for your next move. <span>Free & open source · Your data, your control</span></footer>
+  </div>
+  <dialog id="detail-dialog"><div id="detail-content"></div></dialog>
+  <dialog id="import-dialog"><form id="import-form"><div class="modal-heading"><h2>Add an opportunity</h2><button type="button" class="icon-button close-modal" aria-label="Close">×</button></div><p class="muted">Paste a job from any board, or import a JSON list of job records.</p><div class="form-grid"><label>Job title<input name="title"></label><label>Company<input name="company"></label><label>Location<input name="location"></label><label>Application URL<input name="url" type="url" placeholder="https://…"></label></div><label>Job description<textarea name="description" rows="7"></textarea></label><label>Or choose a JSON file<input name="file" type="file" accept=".json,application/json"></label><button class="button primary">Save opportunity</button></form></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body></html>

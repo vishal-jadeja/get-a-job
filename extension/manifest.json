@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "JobPilot — Approved Application Helper",
+  "version": "1.0.0",
+  "description": "Fill reviewed job applications from your local JobPilot career profile.",
+  "permissions": ["storage", "scripting", "tabs"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "optional_host_permissions": ["https://jobs.lever.co/*", "https://jobs.eu.lever.co/*", "https://boards.greenhouse.io/*", "https://job-boards.greenhouse.io/*", "https://jobs.ashbyhq.com/*"],
+  "background": {"service_worker": "background.js"},
+  "action": {"default_popup": "popup.html", "default_title": "JobPilot"}
+}

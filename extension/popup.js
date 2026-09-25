@@ -1,0 +1,8 @@
+const $=id=>document.getElementById(id);
+const origins=['https://jobs.lever.co/*','https://jobs.eu.lever.co/*','https://boards.greenhouse.io/*','https://job-boards.greenhouse.io/*','https://jobs.ashbyhq.com/*'];
+async function load(){const data=await chrome.storage.local.get(['server','token','progress']);if(data.server)$('server').value=data.server;if(data.token)$('token').value=data.token;if(data.progress)$('status').textContent=data.progress.message;}
+$('connect').onclick=async()=>{try{const u=new URL($('server').value);if(u.protocol!=='http:'||!['127.0.0.1','localhost'].includes(u.hostname)||u.username||u.password)throw Error('Use a local HTTP server address');await chrome.storage.local.set({server:u.origin,token:$('token').value.trim()});const r=await chrome.runtime.sendMessage({type:'ping'});$('status').textContent=r.error||`Connected · ${r.count} approved applications`;}catch(err){$('status').textContent=err.message}};
+$('start').onclick=async()=>{try{const allowed=await chrome.permissions.request({origins});if(!allowed)throw Error('Site permissions are needed to fill job forms');const r=await chrome.runtime.sendMessage({type:'run',autoSubmit:$('auto').checked,limit:$('limit').value});if(r.error)throw Error(r.error);$('status').textContent='Starting approved batch…';}catch(err){$('status').textContent=err.message}};
+$('stop').onclick=async()=>{await chrome.runtime.sendMessage({type:'stop'});$('status').textContent='Stopping before the next submission. An already-sent submission cannot be undone.'};
+chrome.storage.onChanged.addListener(changes=>{if(changes.progress)$('status').textContent=changes.progress.newValue.message});
+load();
