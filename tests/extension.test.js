@@ -2,6 +2,11 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {answer,supported,sameApplication,canSubmit}=require('../extension/rules.js');
 const profile={name:'Example Candidate',email:'candidate@example.com',answers:{'Do you need sponsorship?':'Yes'}};
+test('first and last names use explicit profile values only',()=>{
+ assert.equal(answer('First name',profile),null);
+ assert.equal(answer('First name',{...profile,first_name:'Example'}),'Example');
+ assert.equal(answer('Family name',{...profile,last_name:'Candidate'}),'Candidate');
+});
 test('exact saved answers can be reused without inferring sensitive details',()=>{
  assert.equal(answer('Do you need sponsorship? *',profile),'Yes');
  assert.equal(answer('Are you authorized to work in Canada?',profile),null);

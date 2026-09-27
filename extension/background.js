@@ -54,6 +54,7 @@ async function runBatch(autoSubmit,limit){
  }catch(error){running=false;await status(error.message);}
 }
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
+ if(message.type==='save-job'){api('import',{jobs:[message.job]}).then(result=>respond(result)).catch(err=>respond({error:err.message}));return true}
  if(message.type==='stop'){stopRequested=true;respond({ok:true});return}
  if(message.type==='run'){if(running){respond({error:'A batch is already running'});return}runBatch(!!message.autoSubmit,message.limit);respond({ok:true});return}
  if(message.type==='ping'){api('queue').then(queue=>respond({ok:true,count:queue.length})).catch(err=>respond({error:err.message}));return true}

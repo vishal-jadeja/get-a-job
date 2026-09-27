@@ -4,14 +4,16 @@ import json
 import re
 import secrets
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from .matching import match
 from .materials import prepare, fingerprint
 from .roles import suggest_roles
 from .sources import clean_url, validate_source
+from .tailoring import prepare_for_job
 
-DEFAULT_PROFILE = {"name": "", "email": "", "phone": "", "location": "", "headline": "", "linkedin": "", "website": "",
+DEFAULT_PROFILE = {"name": "", "first_name": "", "last_name": "", "email": "", "phone": "", "location": "", "headline": "", "linkedin": "", "website": "",
                    "skills": [], "technologies": [], "experience": [], "projects": [], "education": [],
                    "certifications": [], "achievements": [], "languages": [], "resume_text": "", "roles": [],
                    "locations": [], "excluded_companies": [], "excluded_keywords": [], "required_keywords": [],
@@ -49,6 +51,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS sources(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, board TEXT NOT NULL,
                   company TEXT NOT NULL, enabled INTEGER NOT NULL, last_sync TEXT, count INTEGER DEFAULT 0, error TEXT,
                   UNIQUE(kind, board));
+                CREATE TABLE IF NOT EXISTS resume_variants(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
             """)
             for key, value in (("profile", DEFAULT_PROFILE), ("token", secrets.token_urlsafe(32)),
                                ("automation", {"enabled": False, "interval_hours": 6, "prepare_matches": False, "batch_size": 20, "last_run": None})):
@@ -57,11 +60,16 @@ class Store:
                 db.execute("INSERT OR IGNORE INTO sources(kind,board,company,enabled) VALUES(:kind,:board,:company,:enabled)", source)
         self.path.chmod(0o600)
 
+    @contextmanager
     def db(self):
         db = sqlite3.connect(self.path, timeout=30)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA journal_mode=WAL")
-        return db
+        try:
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA journal_mode=WAL")
+            with db:
+                yield db
+        finally:
+            db.close()
 
     def setting(self, key):
         with self.db() as db:
@@ -148,6 +156,8 @@ class Store:
     def upsert_jobs(self, jobs):
         normalized = []
         for job in jobs:
+            if not isinstance(job, dict):
+                raise ValueError("Each job must be a JSON object")
             if not str(job.get("title", "")).strip() or not str(job.get("company", "")).strip():
                 raise ValueError("Every job needs a title and company")
             remote = bool(job.get("remote"))
@@ -165,6 +175,10 @@ class Store:
                 existing = db.execute("SELECT * FROM jobs WHERE id=? OR url=?", (jid, job["url"])).fetchone()
                 if existing:
                     previous = json.loads(existing["payload"])
+                    if previous.get('resume_asset'):
+                        job['resume_asset'] = previous['resume_asset']
+                    if previous.get('resume_variant_id'):
+                        job['resume_variant_id'] = previous['resume_variant_id']
                     # Do not destroy ATS metadata on a duplicate manual import.
                     if not job["external_id"] and previous.get("external_id"):
                         continue
@@ -217,7 +231,8 @@ class Store:
             if action == "prepare":
                 if status not in {"discovered", "prepared", "needs_review"}:
                     raise ValueError("This application cannot be prepared in its current state")
-                materials = prepare(profile, job)
+                variants = [json.loads(r[0]) for r in db.execute('SELECT payload FROM resume_variants ORDER BY rowid')]
+                materials = prepare_for_job(profile, job, variants)
                 db.execute("UPDATE jobs SET materials=?,approval=NULL WHERE id=?", (json.dumps(materials), jid))
                 new_status = "prepared"
             elif action == "approve":
@@ -241,8 +256,11 @@ class Store:
                 if status != "in_progress" or row["approval"] != fingerprint(profile, job):
                     raise ValueError("Submission requires a current, claimed approval")
                 new_status = "submitting"
-            elif action == "submitted":
-                if status not in {"submitting", "in_progress", "needs_review", "approved", "submission_unknown"}:
+            elif action in {"submitted", "submitted_manual"}:
+                allowed = {"submitting", "in_progress", "needs_review", "approved", "submission_unknown"}
+                if action == "submitted_manual":
+                    allowed |= {"discovered", "prepared"}
+                if status not in allowed:
                     raise ValueError("Application has already been recorded or is not ready")
                 if not str(detail).strip():
                     raise ValueError("Record the confirmation or explain how submission was verified")
@@ -261,9 +279,25 @@ class Store:
                     raise ValueError("Record a confirmed application before updating its outcome")
                 new_status = action
             elif action == "archive":
+                if status == 'archived':
+                    raise ValueError('Application is already archived')
                 if status in {"in_progress", "submitting", "submission_unknown"}:
                     raise ValueError("Resolve the running or uncertain attempt first")
                 new_status = "archived"
+                detail = json.dumps({"previous_status": status})
+            elif action == "restore":
+                if status != "archived":
+                    raise ValueError("Only archived applications can be restored")
+                if row["submitted_at"]:
+                    archived = db.execute("SELECT detail FROM events WHERE job_id=? AND kind='archive' ORDER BY id DESC LIMIT 1", (jid,)).fetchone()
+                    try:
+                        previous = json.loads(archived[0]).get("previous_status") if archived else None
+                    except (ValueError, TypeError):
+                        previous = None
+                    new_status = previous if previous in {"submitted", "interview", "offer", "rejected"} else "submitted"
+                else:
+                    new_status = "discovered"
+                    db.execute("UPDATE jobs SET materials=NULL,approval=NULL,lease_until=NULL WHERE id=?", (jid,))
             elif action == "note":
                 db.execute("UPDATE jobs SET notes=? WHERE id=?", (str(detail)[:12000], jid))
             else:

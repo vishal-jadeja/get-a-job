@@ -1,0 +1,33 @@
+% Adapted from Jake's Resume by Jake Gutierrez (MIT), based on sb2nov/resume.
+% https://www.overleaf.com/latex/templates/jakes-resume/syzfjbzwjncs
+% The accompanying LICENSE-jake.txt must be retained with this template.
+\documentclass[letterpaper,11pt]{article}
+\usepackage[margin=0.5in]{geometry}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \input{glyphtounicode}
+  \pdfgentounicode=1
+\else
+  \usepackage{fontspec}
+  \setmainfont{Latin Modern Roman}
+\fi
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{tabularx}
+\pagestyle{empty}
+\raggedright
+\raggedbottom
+\urlstyle{same}
+\setlength{\tabcolsep}{0pt}
+\setlength{\parindent}{0pt}
+\setlength{\emergencystretch}{3em}
+\titleformat{\section}{\vspace{-3pt}\scshape\raggedright\large}{}{0em}{}[\titlerule\vspace{-4pt}]
+\newcommand{\resumeItem}[1]{\item\small{#1}}
+\newcommand{\resumeSubheading}[3]{\noindent\begin{tabularx}{\textwidth}{Xr}\textbf{#1}&\small #3\\\textit{\small #2}&\end{tabularx}\vspace{-4pt}}
+\setlist[itemize]{leftmargin=0.18in,itemsep=2pt,topsep=3pt,parsep=0pt}
+\begin{document}
+%%JOBPILOT_BODY%%
+\end{document}

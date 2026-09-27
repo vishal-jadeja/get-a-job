@@ -1,5 +1,6 @@
 import base64
 import json
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timezone, timedelta
@@ -102,6 +103,22 @@ class StoreTests(unittest.TestCase):
     def ready(self):
         self.store.action(self.jid,"prepare")
         self.store.action(self.jid,"approve")
+
+    def test_database_context_closes_connection(self):
+        with self.store.db() as db:
+            db.execute("INSERT INTO settings VALUES (?, ?)", ("connection_test", '"committed"'))
+        with self.assertRaises(sqlite3.ProgrammingError):
+            db.execute("SELECT 1")
+        self.assertEqual(self.store.setting("connection_test"), "committed")
+
+    def test_database_context_rolls_back_and_closes_on_error(self):
+        with self.assertRaisesRegex(ValueError, "Abort transaction"):
+            with self.store.db() as db:
+                db.execute("INSERT INTO settings VALUES (?, ?)", ("connection_test", '"uncommitted"'))
+                raise ValueError("Abort transaction")
+        with self.assertRaises(sqlite3.ProgrammingError):
+            db.execute("SELECT 1")
+        self.assertIsNone(self.store.setting("connection_test"))
 
     def test_import_duplicate_preserves_submitted_state(self):
         self.ready()

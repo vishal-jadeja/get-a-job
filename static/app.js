@@ -22,9 +22,9 @@ async function api(path, data) {
   if (!response.ok) throw Error(result.error || 'Request failed');
   return result;
 }
-function toast(message,error=false) { const t=$('#toast');t.textContent=message;t.className=error?'error':'';t.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.style.display='none',7000); }
-async function download(path,name) { const r=await fetch('/api/'+path,{headers:{Authorization:'Bearer '+token}});if(!r.ok){const body=await r.json();throw Error(body.error)}const url=URL.createObjectURL(await r.blob());const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000); }
-async function refresh(renderNow=true,onlyChanged=false) {const next=await api('state');const changed=!onlyChanged||JSON.stringify(state)!==JSON.stringify(next);state=next;if(renderNow&&changed)render();if(state.sync.running)poll();}
+function toast(message,error=false) { const t=$('#toast');t.textContent=message;t.className=error?'error':'';t.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.style.display='none',7000);const dialog=$$('dialog[open]').at(-1);if(dialog){let feedback=$('.dialog-feedback',dialog);if(!feedback){feedback=document.createElement('p');feedback.className='dialog-feedback';feedback.setAttribute('role','status');dialog.prepend(feedback)}feedback.textContent=message;feedback.classList.toggle('error',error);} }
+async function download(path,name,data) { const r=await fetch('/api/'+path,{method:data===undefined?'GET':'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});if(!r.ok){const body=await r.json();throw Error(body.error)}const url=URL.createObjectURL(await r.blob());const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000); }
+async function refresh(renderNow=true,onlyChanged=false) {const next=await api('state');const changed=!onlyChanged||JSON.stringify(state)!==JSON.stringify(next);state=next;if(renderNow&&changed&&!dirtyForm)render();if(state.sync.running)poll();}
 function poll() { clearTimeout(pollTimer);pollTimer=setTimeout(async()=>{try{const result=await api('sync');state.sync=result;const status=$('#sync-status');if(status)status.textContent=result.message;if(result.running)poll();else{await refresh();toast(result.message,!!result.errors?.length)}}catch(err){toast(err.message,true)}},2000); }
 function navigate(name) { location.hash=name; }
 function matchedJobs(){return state.jobs.filter(j=>j.match.eligible && j.match.score>=state.profile.min_score)}
@@ -57,7 +57,7 @@ function profile(){
 }
 
 function jobCard(job){return `<article class="job-card"><div class="job-card-top"><div class="company-icon">${e(job.company.slice(0,2).toUpperCase())}</div><span class="company">${e(job.company)}</span><input type="checkbox" aria-label="Select ${e(job.title)} at ${e(job.company)}" data-select="${job.id}" ${selected.has(job.id)?'checked':''}></div><h3><a href="#" data-job="${job.id}">${e(job.title)}</a></h3><div class="job-meta">${e(job.location||'Location not listed')} · ${e(titleCase(job.source||'Imported'))}</div><div class="chips" style="margin-top:15px">${job.match.covered_skills.slice(0,4).map(s=>`<span class="chip">${e(s)}</span>`).join('')||'<span class="help">No recognized skill evidence yet</span>'}</div>${!job.match.eligible?`<div class="blocked">${e(job.match.blockers[0])}</div>`:''}<div class="job-card-bottom">${score(job)}${badge(job.status)}<button class="button link" data-job="${job.id}">Review ↗</button></div></article>`}
-function filteredJobs(application=false){return state.jobs.filter(j=>(!application||j.status!=='discovered')&&(!filters.eligible||application||j.match.eligible&&j.match.score>=state.profile.min_score)&&(filters.status==='all'||j.status===filters.status)&&`${j.title} ${j.company} ${j.location}`.toLowerCase().includes(filters.query.toLowerCase()))}
+function filteredJobs(application=false){return filterWorkspaceJobs(state.jobs.filter(j=>(!application||j.status!=='discovered')&&(!filters.eligible||application||j.match.eligible&&j.match.score>=state.profile.min_score)&&(filters.status==='all'||j.status===filters.status)&&`${j.title} ${j.company} ${j.location}`.toLowerCase().includes(filters.query.toLowerCase())))}
 function jobsView(application=false){
  const jobs=filteredJobs(application),size=24;page=Math.min(page,Math.max(0,Math.ceil(jobs.length/size)-1));const slice=jobs.slice(page*size,(page+1)*size);
  return heading(application?'EVERY OPPORTUNITY, ACCOUNTED FOR':'FIND YOUR NEXT FIT',application?'Your application pipeline.':'Opportunities with potential.',application?'Prepared, approved, submitted, and everything that follows.':'Ranked against your career evidence. Understand the fit before you apply.',application?button('Export CSV ↗','csv'):button('+ Add job','import')+button('↻ Find my matches','discover','primary'))+
@@ -87,9 +87,19 @@ function sources(){return heading('EXPAND YOUR HORIZONS','Good opportunities sta
  <aside><form class="panel" id="source-form"><h2>Add a company</h2><label>Job platform<select name="kind"><option value="greenhouse">Greenhouse</option><option value="lever">Lever</option><option value="lever_eu">Lever EU</option><option value="ashby">Ashby</option></select></label><label>Company name<input name="company" required placeholder="Company name"></label><label>Board slug<input name="board" required pattern="[A-Za-z0-9_-]+" placeholder="e.g. stripe"></label><p class="help">The slug appears in the employer’s board URL: <code>jobs.lever.co/company</code>, <code>boards.greenhouse.io/company</code>, or <code>jobs.ashbyhq.com/company</code>.</p><button class="button primary">Connect source +</button></form><section class="panel"><h3>Found a job somewhere else?</h3><p class="help">Import any posting manually or use a JSON export. An optional JobSpy importer is included for broader discovery from job boards.</p>${button('Add an opportunity','import')}</section></aside></div><div class="section-note" id="sync-status">${e(state.sync.message)}. The starter directory is a sample of employers, not the entire job market. Add companies relevant to your roles and locations.</div>`}
 
 function render(){
- $$('nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===view));$('#page-label').textContent=({profile:'Career profile',discover:'Discover jobs',sources:'Job sources'})[view]||titleCase(view);
+ $$('nav a').forEach(a=>{a.classList.toggle('active',a.dataset.view===view);if(a.dataset.view===view)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});$('#page-label').textContent=({overview:'Today',profile:'Career profile',discover:'Discover jobs',sources:'Job sources'})[view]||titleCase(view);
  $('#nav-jobs').textContent=matchedJobs().length;$('#nav-apps').textContent=state.jobs.filter(j=>j.status!=='discovered').length;$('#sidebar-user').textContent=state.profile.name||'Your next chapter starts here.';
- $('#main').innerHTML=({overview,profile,discover:()=>jobsView(false),applications:()=>jobsView(true),analytics,automation,sources}[view]||overview)();
+ $('#main').innerHTML=({overview:todayView,profile,discover:()=>workspaceJobsView(false),applications:()=>workspaceJobsView(true),planner:plannerView,contacts:contactsView,analytics,automation,sources}[view]||todayView)();
+ if(view==='profile'){
+  const essentials=$('#profile-form .form-grid');
+  essentials.insertAdjacentHTML('beforeend',input('first_name','First / given name (for autofill)')+input('last_name','Last / family name (for autofill)'));
+  $('#main aside').insertAdjacentHTML('afterbegin',resumeLibrary());
+  $('#main aside').insertAdjacentHTML('afterbegin',roleResumePanel());
+ }
+ if(view==='automation')$('#main').insertAdjacentHTML('beforeend','<section class="panel"><h2>Back up your complete workspace</h2><p class="help">Includes your database, original résumé, tasks, contacts, and draft revisions. Store the ZIP privately. Restore instructions are included.</p>'+wsButton('Download full backup','backup','primary')+'</section>');
+ if(view==='automation')$('#main').insertAdjacentHTML('beforeend',firecrawlSettings());
+ if(['discover','applications'].includes(view))$('.bulk-bar').insertAdjacentHTML('beforeend',wsButton('Generate PDFs','batch-pdfs','small'));
+ if(view==='automation')$('#main').insertAdjacentHTML('beforeend',`<section class="panel"><h2>LaTeX résumé generation</h2><p class="help">Jake’s Resume template · ${state.integrations?.latex?.available?'Tectonic is ready for local PDF compilation.':'Install Tectonic or configure JOBPILOT_TECTONIC to compile PDFs here. LaTeX downloads work without a compiler.'}</p><p class="help">Preparation creates job-specific LaTeX automatically. Generate PDFs individually or in batches, review them, then use the tailored PDF as the attachment. Compilation runs locally; first use may download LaTeX packages.</p></section>`);
 }
 
 async function detail(jid){
@@ -101,6 +111,13 @@ async function detail(jid){
  ${material?`<details open><summary>Prepared résumé · only your saved facts</summary><div class="preview">${e(material.resume)}</div></details><details><summary>Cover letter draft</summary><div class="preview">${e(material.cover_letter)}</div></details><p class="help">${e(material.note)} Review your original résumé attachment before approving: <strong>${e(state.profile.resume_file?.name||'No file uploaded')}</strong>.</p>`:''}
  <details ${material?'':'open'}><summary>Job description</summary><div class="detail-description">${e(job.description||'No description was provided.')}</div></details>
  <div class="subtle-separator"></div><h3>Track this application</h3><form id="status-form"><div class="form-grid"><label>Record an outcome<select name="action"><option value="note">Save notes only</option><option value="submitted">Confirm submitted manually</option><option value="interview">Interview</option><option value="offer">Offer</option><option value="rejected">Rejected</option></select></label><label>Confirmation / note<input name="detail" placeholder="Confirmation text, date, or interview details"></label></div><button class="button">Update application</button></form><p class="help">${e(job.notes||'No notes yet.')} ${job.submitted_at?'Submitted '+e(new Date(job.submitted_at).toLocaleString()):''}</p><details><summary>Complete application history · ${job.events.length} events</summary>${job.events.map(x=>`<p class="help"><strong>${e(titleCase(x.kind))}</strong> · ${e(new Date(x.created_at).toLocaleString())}<br>${e(x.detail)}</p>`).join('')}</details>`;
+ $('#detail-content .detail-actions').insertAdjacentHTML('afterend',workspaceDetail(job));
+ if(material){
+  $('#detail-content .detail-actions').insertAdjacentHTML('beforeend',wsButton('Download LaTeX','latex','',`data-id="${job.id}"`)+wsButton('Download PDF','pdf','',`data-id="${job.id}"`));
+  if(['prepared','approved','needs_review'].includes(job.status))$('#job-resume-form').insertAdjacentHTML('beforeend',wsButton('Use tailored PDF as attachment','use-pdf','primary',`data-id="${job.id}"`));
+ }
+ if(job.resume_asset){const help=$$('#detail-content p.help').find(p=>p.textContent.includes('Review your original résumé attachment'));if(help)help.innerHTML=`${e(material?.note||'')} Selected attachment: <strong>${e(job.resume_asset.name)}</strong>.`;}
+ const manual=$('#status-form option[value="submitted"]');if(manual)manual.value='submitted_manual';
  if(!$('#detail-dialog').open)$('#detail-dialog').showModal();
 }
 
@@ -119,7 +136,7 @@ async function action(name){
 }
 
 document.addEventListener('click',async event=>{
- const close=event.target.closest('.close-modal');if(close){close.closest('dialog').close();return}
+ const close=event.target.closest('.close-modal');if(close){if(dirtyForm&&!confirm('Discard unsaved edits?'))return;dirtyForm=false;close.closest('dialog').close();return}
  if(event.target.matches('[data-select]'))return;
  const role=event.target.closest('[data-add-role]');if(role){const input=$('[name="roles"]');const items=commas(input.value);if(!items.includes(role.dataset.addRole))items.push(role.dataset.addRole);input.value=items.join(', ');toast('Role added to the form. Save your profile to keep it.');return}
  const target=event.target.closest('[data-action],[data-job]');if(!target)return;event.preventDefault();
@@ -142,20 +159,22 @@ document.addEventListener('input',event=>{if(event.target.id==='job-search'){fil
 document.addEventListener('submit',async event=>{
  event.preventDefault();const form=event.target,fd=new FormData(form),submit=event.submitter;if(submit)submit.disabled=true;
  try{
+  if(await workspaceSubmit(form,fd))return;
   if(form.id==='profile-form'){
    const p=Object.fromEntries(fd);for(const k of ['skills','technologies','roles','locations','required_keywords','excluded_keywords','excluded_companies'])p[k]=commas(p[k]||'');
    for(const k of ['experience','projects','education','certifications','achievements','languages'])p[k]=lines(p[k]||'');
    p.answers={};for(const line of lines(fd.get('answers')||'')){const at=line.indexOf(' | ');if(at<1)throw Error('Each saved answer needs an exact question, then " | ", then its answer.');p.answers[line.slice(0,at).trim()]=line.slice(at+3).trim()}
-   const result=await api('profile',p);await refresh();toast(`Profile saved · ${result.suggestions.length} role suggestions found`);
+   const result=await api('profile',p);dirtyForm=false;await refresh();toast(`Profile saved · ${result.suggestions.length} role suggestions found`);
    if(submit?.value==='discover'){navigate('discover');await action('discover')}
   }else if(form.id==='source-form'){await api('sources',{...Object.fromEntries(fd),enabled:true});await refresh();toast('Source connected. Refresh sources to discover its jobs.');}
   else if(form.id==='automation-form'){await api('automation',{...Object.fromEntries(fd),enabled:fd.has('enabled'),prepare_matches:fd.has('prepare_matches')});await refresh();toast('Automation settings saved.');}
-  else if(form.id==='import-form'){const file=fd.get('file');let jobs;if(file?.size){const data=JSON.parse(await file.text());jobs=Array.isArray(data)?data:data.jobs;}else{const item=Object.fromEntries(fd);delete item.file;item.source='manual';jobs=[item]}const r=await api('import',{jobs});$('#import-dialog').close();form.reset();await refresh();toast(`${r.added} new opportunities added`);}
+  else if(form.id==='import-form'){const file=fd.get('file');let jobs;if(file?.size){const data=JSON.parse(await file.text());jobs=Array.isArray(data)?data:data.jobs;}else{const item=Object.fromEntries(fd);delete item.file;item.source=form.dataset.source||'manual';jobs=[item]}const r=await api('import',{jobs});$('#import-dialog').close();form.reset();delete form.dataset.source;$('#import-feedback').textContent='';await refresh();toast(`${r.added} new opportunities added`);}
   else if(form.id==='status-form'){await api('jobs/'+detailId+'/action',Object.fromEntries(fd));await refresh();await detail(detailId);toast('Application updated.');}
+  dirtyForm=false;render();
  }catch(err){toast(err.message,true)}finally{if(submit)submit.disabled=false}
 });
 $('#export-top').addEventListener('click',()=>action('export').catch(err=>toast(err.message,true)));
-window.addEventListener('hashchange',()=>{view=location.hash.slice(1)||'overview';selected.clear();filters.status='all';page=0;if(state){render();refresh().catch(err=>toast(err.message,true))}});
-setInterval(()=>{if(state&&!document.hidden&&!document.querySelector('dialog[open]')&&!document.activeElement.matches('input,textarea,select')&&['overview','applications','analytics','discover'].includes(view))refresh(true,true).catch(()=>{})},15000);
+window.addEventListener('hashchange',()=>{view=location.hash.slice(1)||'overview';dirtyForm=false;selected.clear();filters.status='all';page=0;if(state){render();refresh().catch(err=>toast(err.message,true))}});
+setInterval(()=>{if(state&&!dirtyForm&&!document.hidden&&!document.querySelector('dialog[open]')&&!document.activeElement.matches('input,textarea,select')&&['overview','applications','analytics','discover','planner','contacts'].includes(view))refresh(true,true).catch(()=>{})},15000);
 async function init(){try{await refresh(false);view=location.hash.slice(1)||(state.profile.name?'overview':'profile');render();if(state.sync.running)poll()}catch(err){$('#main').innerHTML=empty('!','Could not open the workspace',e(err.message),'<button class="button" data-action="reload">Reload</button>')}}
 init();

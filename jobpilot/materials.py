@@ -3,11 +3,16 @@ import hashlib
 import html
 import json
 from .matching import tokens, contains
+from .latex_resume import render_latex
 
 
 def fingerprint(profile, job):
     # Submission approval covers exact profile and posting, including the uploaded file digest.
     value = {"profile": profile, "job": {k: job.get(k) for k in ("title", "company", "url", "description", "location")}}
+    if job.get('resume_asset'):
+        value['job']['resume_asset'] = job['resume_asset']
+    if job.get('resume_variant_id'):
+        value['job']['resume_variant_id'] = job['resume_variant_id']
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
@@ -46,5 +51,5 @@ def prepare(profile, job):
     printable = ("<!doctype html><html><head><meta charset='utf-8'><title>" + esc(profile["name"]) +
                  " — Resume</title><style>body{font:11pt/1.5 Arial,sans-serif;color:#182326;max-width:760px;margin:44px auto;padding:0 32px}h1{font-size:25pt}p{white-space:normal} @page{size:A4;margin:18mm}@media print{body{margin:0;padding:0}}</style></head><body><h1>" +
                  esc(profile["name"]) + "</h1>" + sections + "</body></html>")
-    return {"resume": resume, "resume_html": printable, "cover_letter": cover, "evidence": evidence,
+    return {"resume": resume, "resume_html": printable, "resume_latex": render_latex(resume), "cover_letter": cover, "evidence": evidence,
             "fingerprint": fingerprint(profile, job), "note": "All career statements come verbatim from your profile. The browser helper uploads your original résumé file."}

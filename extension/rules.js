@@ -2,6 +2,7 @@
 (function(root){
   const normalize = text => String(text||'').replace(/\*/g,'').replace(/\s+/g,' ').replace(/\s*\(required\)\s*$/i,'').trim().toLowerCase();
   const aliases = {
+    first_name:['first name','given name','legal first name'], last_name:['last name','family name','surname','legal last name'],
     name:['full name','name','your name','full legal name'], email:['email','email address','your email'],
     phone:['phone','phone number','mobile phone','mobile phone number'],
     location:['current location','location','current city'],
@@ -12,7 +13,7 @@
     const key=normalize(label);
     for(const [q,a] of Object.entries(profile.answers||{}))if(normalize(q)===key)return a;
     for(const [field,names] of Object.entries(aliases))if(names.includes(key))return profile[field]||null;
-    // Do not infer legal first/last names, authorization, demographic data, dates, or salary.
+    // Use explicit name fields only; never split a full name or infer sensitive answers.
     return null;
   }
   function supported(url){try{const u=new URL(url);return !u.username&&!u.password&&!u.port&&['jobs.lever.co','jobs.eu.lever.co','boards.greenhouse.io','job-boards.greenhouse.io','jobs.ashbyhq.com'].includes(u.hostname)&&u.protocol==='https:'}catch{return false}}

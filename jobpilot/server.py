@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import mimetypes
+import os
 import secrets
 import threading
 import time
@@ -15,6 +16,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from .sources import discover
 from .store import Store, now
+from .workspace import Workspace
+from . import firecrawl
+from . import latex_resume
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -22,6 +26,10 @@ ROOT = Path(__file__).resolve().parent.parent
 class App:
     def __init__(self, store):
         self.store = store
+        self.workspace = Workspace(store)
+        self.firecrawl_key = os.environ.get('FIRECRAWL_API_KEY', '')
+        self.firecrawl_lock = threading.Lock()
+        self.pdf_lock = threading.Lock()
         self.sync_lock = threading.Lock()
         self.sync_status = {"running": False, "message": "Ready to discover jobs", "added": 0}
 
@@ -143,9 +151,9 @@ def handler_class(app):
                     if method != "GET":
                         return self.send({"error": "Not found"}, 404)
                     if path == "/":
-                        page = (ROOT / "static/index.html").read_text().replace("__TOKEN__", app.store.setting("token"))
+                        page = (ROOT / "static/index.html").read_text(encoding="utf-8").replace("__TOKEN__", app.store.setting("token"))
                         return self.send(page, content_type="text/html; charset=utf-8")
-                    assets = {"/app.js": "static/app.js", "/styles.css": "static/styles.css", "/icon.svg": "static/icon.svg"}
+                    assets = {"/app.js": "static/app.js", "/workspace.js": "static/workspace.js", "/workspace.css": "static/workspace.css", "/styles.css": "static/styles.css", "/icon.svg": "static/icon.svg"}
                     if path in assets:
                         file = ROOT / assets[path]
                         return self.send(file.read_bytes(), content_type=mimetypes.guess_type(file.name)[0] or "text/plain")
@@ -163,7 +171,48 @@ def handler_class(app):
                 if method == "GET" and path == "/api/state":
                     state = app.store.bootstrap()
                     state["sync"] = app.sync_status
+                    state["workspace"] = app.workspace.state()
+                    state["integrations"] = {'firecrawl': {'configured': bool(app.firecrawl_key)}, 'latex': {'available': bool(latex_resume.compiler())}}
                     return self.send(state)
+                if method == "POST" and path == "/api/integrations/firecrawl":
+                    key = data.get('key', '')
+                    if not isinstance(key, str) or len(key) > 500 or any(ord(c) < 32 or ord(c) > 126 for c in key):
+                        raise ValueError('Enter a valid API key')
+                    app.firecrawl_key = key.strip()
+                    return self.send({'configured': bool(app.firecrawl_key)})
+                if method == "POST" and path in {"/api/web/extract", "/api/web/search"}:
+                    if not app.firecrawl_lock.acquire(blocking=False):
+                        return self.send({'error': 'A Firecrawl request is already running. Wait for it to finish.'}, 409)
+                    try:
+                        if path.endswith('/extract'):
+                            return self.send({'job': firecrawl.extract(data['url'], app.firecrawl_key)})
+                        return self.send({'results': firecrawl.search(data['query'], app.firecrawl_key)})
+                    finally:
+                        app.firecrawl_lock.release()
+                if method == "POST" and path == "/api/workspace/metadata":
+                    return self.send(app.workspace.save_metadata(data['job_id'], data))
+                if method == "POST" and path == "/api/workspace/resumes":
+                    return self.send(app.workspace.save_resume(data['name'], data['base64']))
+                if method == "POST" and path == "/api/workspace/resume-variants":
+                    return self.send(app.workspace.save_variant(data))
+                if method == "POST" and path in {"/api/workspace/tasks", "/api/workspace/contacts", "/api/workspace/searches"}:
+                    return self.send(app.workspace.save_record(path.rsplit('/', 1)[1], data))
+                if method == "POST" and path == "/api/workspace/remove":
+                    return self.send(app.workspace.remove_record(data['kind'], data['id']))
+                if method == "POST" and path == "/api/workspace/goal":
+                    goal = int(data['goal'])
+                    if not 1 <= goal <= 500:
+                        raise ValueError('Choose a weekly goal from 1 to 500')
+                    app.store.set_setting('weekly_goal', goal)
+                    return self.send({'goal': goal})
+                if method == "POST" and path == "/api/application-queue":
+                    return self.send(app.workspace.save_queue(data['ids']))
+                if method == "GET" and path == "/api/calendar.ics":
+                    return self.send(app.workspace.calendar(), content_type='text/calendar; charset=utf-8', filename='jobpilot-planner.ics')
+                if method == "GET" and path == "/api/backup.zip":
+                    return self.send(app.workspace.backup(), content_type='application/zip', filename='jobpilot-backup.zip')
+                if method == "POST" and path == "/api/bundles":
+                    return self.send(app.workspace.bundles(data['ids']), content_type='application/zip', filename='application-materials.zip')
                 if method == "GET" and path == "/api/sync":
                     return self.send(app.sync_status)
                 if method == "POST" and path == "/api/profile":
@@ -188,10 +237,12 @@ def handler_class(app):
                         raise ValueError("Import 1–5,000 job records")
                     return self.send({"added": app.store.upsert_jobs(jobs)})
                 if method == "POST" and path == "/api/batch":
+                    if not isinstance(data.get('ids'), list) or any(not isinstance(x, str) for x in data['ids']):
+                        raise ValueError('Choose a list of job IDs')
                     ids = list(dict.fromkeys(data.get("ids", [])))
                     action = data.get("action")
-                    if not 1 <= len(ids) <= 100 or action not in {"prepare", "approve", "archive"}:
-                        raise ValueError("Choose 1–100 jobs and prepare, approve, or archive")
+                    if not 1 <= len(ids) <= 100 or action not in {"prepare", "approve", "archive", "restore"}:
+                        raise ValueError("Choose 1–100 jobs and prepare, approve, archive, or restore")
                     results = []
                     for jid in ids:
                         try:
@@ -201,14 +252,17 @@ def handler_class(app):
                             results.append({"id": jid, "ok": False, "error": str(exc)})
                     return self.send({"results": results})
                 if method == "GET" and path == "/api/export":
-                    return self.send(app.store.bootstrap(), filename="jobpilot-backup.json")
+                    return self.send({**app.store.bootstrap(), 'workspace': app.workspace.state()}, filename="jobpilot-export.json")
                 if method == "GET" and path == "/api/export.csv":
                     stream = io.StringIO()
-                    fields = ["id", "title", "company", "location", "url", "status", "match_percent", "skill_coverage_percent", "source", "created_at", "submitted_at", "notes"]
+                    fields = ["id", "title", "company", "location", "url", "status", "match_percent", "skill_coverage_percent", "source", "created_at", "submitted_at", "notes", "priority", "salary", "deadline", "tags"]
+                    metadata = app.workspace.state()['metadata']
                     writer = csv.DictWriter(stream, fields)
                     writer.writeheader()
                     for job in app.store.jobs():
                         job.update(match_percent=job["match"]["score"], skill_coverage_percent=job["match"]["qualification_percent"])
+                        job.update(metadata.get(job['id'], {}))
+                        job['tags'] = ', '.join(job.get('tags', []))
                         row = {k: job.get(k, "") for k in fields}
                         # Avoid spreadsheet formula injection from posting text.
                         row = {k: "'" + v if isinstance(v, str) and v.startswith(("=", "+", "-", "@", "\t", "\r")) else v for k, v in row.items()}
@@ -222,7 +276,7 @@ def handler_class(app):
                                 z.writestr(file.name, file.read_bytes())
                     return self.send(buf.getvalue(), content_type="application/zip", filename="jobpilot-helper.zip")
                 if method == "GET" and path == "/api/queue":
-                    return self.send([j for j in app.store.jobs() if j["status"] == "approved"])
+                    return self.send(app.workspace.queue())
                 parts = path.split("/")
                 if len(parts) in (4, 5) and parts[2] == "jobs":
                     jid = parts[3]
@@ -230,6 +284,31 @@ def handler_class(app):
                         return self.send(app.store.job(jid))
                     if method == "POST" and len(parts) == 5 and parts[4] == "action":
                         return self.send(app.store.action(jid, data["action"], data.get("detail", "")))
+                    if method == "POST" and len(parts) == 5 and parts[4] == "materials":
+                        return self.send(app.workspace.save_materials(jid, data))
+                    if method == "POST" and len(parts) == 5 and parts[4] == "resume":
+                        return self.send(app.workspace.assign_resume(jid, data.get('resume_id', '')))
+                    if method == "POST" and len(parts) == 5 and parts[4] == "resume-variant":
+                        return self.send(app.workspace.assign_variant(jid, data.get('variant_id', '')))
+                    if method == "GET" and len(parts) == 5 and parts[4] == "versions":
+                        return self.send(app.workspace.material_versions(jid))
+                    if method == "GET" and len(parts) == 5 and parts[4] == "resume.tex":
+                        job = app.store.job(jid)
+                        if not job['materials']:
+                            raise ValueError('Prepare this application first')
+                        return self.send(latex_resume.render_latex(job['materials']['resume']), content_type='application/x-tex; charset=utf-8', filename=f'resume-{jid}.tex')
+                    if len(parts) == 5 and ((method == 'GET' and parts[4] == 'resume.pdf') or (method == 'POST' and parts[4] in ('use-generated-pdf', 'generate-pdf'))):
+                        if not app.pdf_lock.acquire(blocking=False):
+                            return self.send({'error': 'A résumé PDF is being compiled. Please wait, then try again.'}, 409)
+                        try:
+                            if parts[4] == 'use-generated-pdf':
+                                return self.send(app.workspace.use_generated_pdf(jid))
+                            asset = app.workspace.generate_pdf(jid)
+                            if method == 'POST':
+                                return self.send({k: v for k, v in asset.items() if k != 'base64'})
+                            return self.send(base64.b64decode(asset['base64']), content_type='application/pdf', filename=asset['name'])
+                        finally:
+                            app.pdf_lock.release()
                     if method == "GET" and len(parts) == 5 and parts[4] == "bundle":
                         job = app.store.job(jid)
                         if not job["materials"]:
@@ -238,13 +317,20 @@ def handler_class(app):
                         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
                             for name, key in (("resume.txt", "resume"), ("resume.html", "resume_html"), ("cover-letter.txt", "cover_letter")):
                                 z.writestr(name, job["materials"][key])
+                            z.writestr('resume.tex', latex_resume.render_latex(job['materials']['resume']))
+                            z.writestr('LICENSE-jake.txt', latex_resume.license_text())
+                            if job['materials'].get('resume_pdf'):
+                                asset = app.workspace.resume(job['materials']['resume_pdf']['id'])
+                                z.writestr('resume.pdf', base64.b64decode(asset['base64']))
                             z.writestr("job.json", json.dumps({k: job[k] for k in ("title", "company", "url", "description", "match")}, indent=2))
                         return self.send(buf.getvalue(), content_type="application/zip", filename=f"application-{jid}.zip")
                     if method == "POST" and len(parts) == 5 and parts[4] == "claim":
                         job = app.store.action(jid, "claim")
                         profile = app.store.setting("profile")
                         resume = None
-                        if profile.get("resume_file"):
+                        if job.get('resume_asset'):
+                            resume = app.workspace.resume(job['resume_asset']['id'])
+                        elif profile.get("resume_file"):
                             resume = {**profile["resume_file"], "base64": base64.b64encode((app.store.directory / "resume.bin").read_bytes()).decode()}
                         return self.send({"job": job, "profile": profile, "resume": resume})
                 return self.send({"error": "Not found"}, 404)
