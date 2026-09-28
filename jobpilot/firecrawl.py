@@ -1,9 +1,9 @@
 """Optional, user-triggered Firecrawl v2 discovery; never sends applicant data."""
 import json
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, build_opener
+from urllib.request import Request, build_opener, HTTPSHandler
 
-from .sources import clean_url, NoRedirect, plain
+from .sources import clean_url, NoRedirect, plain, tls_context
 
 FIELDS = ('title', 'company', 'location', 'description', 'posted_at')
 SCHEMA = {
@@ -21,17 +21,21 @@ def request(endpoint, payload, api_key=''):
         headers['Authorization'] = 'Bearer ' + api_key
     req = Request('https://api.firecrawl.dev/v2/' + endpoint, data=json.dumps(payload).encode(), headers=headers)
     try:
-        with build_opener(NoRedirect).open(req, timeout=55) as response:
+        with build_opener(NoRedirect, HTTPSHandler(context=tls_context())).open(req, timeout=55) as response:
             raw = response.read(4 * 1024 * 1024 + 1)
             if len(raw) > 4 * 1024 * 1024:
                 raise ValueError('Firecrawl returned too much content; paste this posting manually')
-            result = json.loads(raw)
+            try:
+                result = json.loads(raw)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                raise ValueError('Firecrawl returned an unreadable response. Try again later or import manually.') from None
     except HTTPError as exc:
         code = exc.code
         exc.close()
         messages = {401: 'Firecrawl requires a valid API key. Configure it in Automation.',
                     402: 'Your Firecrawl account has insufficient credits.',
-                    403: 'Firecrawl could not access this resource. Open the posting and import it manually.',
+                    403: ('Firecrawl rejected this guest request. Configure an API key in Automation or import manually.'
+                          if not api_key else 'Firecrawl denied this request. Check your account access or import manually.'),
                     429: 'Firecrawl rate limit reached. Wait before trying again or configure your API key.'}
         raise ValueError(messages.get(code, f'Firecrawl request failed (HTTP {code}). Try again later or import manually.')) from None
     except (URLError, TimeoutError):

@@ -11,7 +11,15 @@
   \pdfgentounicode=1
 \else
   \usepackage{fontspec}
-  \setmainfont{Latin Modern Roman}
+  % File names let Tectonic fetch bundled fonts without a system installation.
+  \setmainfont{lmroman10}[
+    Extension=.otf,
+    UprightFont=*-regular,
+    BoldFont=*-bold,
+    ItalicFont=*-italic,
+    BoldItalicFont=*-bolditalic,
+    SmallCapsFont=lmromancaps10-regular
+  ]
 \fi
 \usepackage{titlesec}
 \usepackage{enumitem}

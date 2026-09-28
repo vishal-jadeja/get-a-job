@@ -1,10 +1,14 @@
 import io
+import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 from unittest.mock import patch
 
-from jobpilot.latex_resume import render_latex, escape_latex
+from jobpilot.latex_resume import render_latex, escape_latex, compile_pdf, compiler
 from jobpilot.store import Store
 from jobpilot.workspace import Workspace
 from test_core import PROFILE, JOB
@@ -26,6 +30,33 @@ class LatexTests(unittest.TestCase):
         self.assertIn(r'\resumeSubheading{Example Co}{Engineer}{2022--2024}', source)
         self.assertNotIn('Jake Ryan', source)
         self.assertNotIn('Kubernetes', source)
+
+
+@unittest.skipUnless(os.environ.get('JOBPILOT_TEST_PDF') == '1',
+                     'Set JOBPILOT_TEST_PDF=1 to run the real compiler/text extraction check')
+class LivePdfTests(unittest.TestCase):
+    def test_compiled_resume_preserves_text(self):
+        self.assertIsNotNone(compiler(), 'Install Tectonic to run PDF integration tests')
+        extractor = shutil.which('pdftotext')
+        self.assertIsNotNone(extractor, 'Install Poppler to run PDF integration tests')
+        resume = ('Alex García\n\nalex@example.com\n\nSKILLS\nPython, SQL, C#\n\n'
+                  'SELECTED EXPERIENCE\n• Example Co | Engineer | 2022–2024 — '
+                  'Built APIs & reduced errors by 50%.\n\n'
+                  'PROJECTS\n• Service Monitor | Python | 2024 — Added scheduled checks.\n\n'
+                  'EDUCATION\n• Computer Science | Example Institute | 2018–2022')
+        content = compile_pdf(resume)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'resume.pdf'
+            path.write_bytes(content)
+            result = subprocess.run([extractor, str(path), '-'], check=True,
+                                    capture_output=True, text=True, timeout=30)
+        extracted = ' '.join(result.stdout.split())
+        for expected in ('Alex García', 'alex@example.com', 'Technical Skills', 'Python, SQL, C#',
+                         'Experience', 'Example Co', 'Engineer', '2022–2024',
+                         'Built APIs & reduced errors by 50%.', 'Projects', 'Service Monitor',
+                         'Added scheduled checks.', 'Education', 'Computer Science', 'Example Institute'):
+            with self.subTest(text=expected):
+                self.assertIn(expected, extracted)
 
 
 class PdfWorkflowTests(unittest.TestCase):

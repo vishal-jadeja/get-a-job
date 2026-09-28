@@ -95,9 +95,9 @@ The nine starter company boards are examples, not the entire job market. Add emp
 
 In Discover, **Search the web** sends your typed query to Firecrawl and shows up to 10 web results. **Preview import** extracts a single posting. Alternatively, paste a URL in **Add job** and click **Import from URL with Firecrawl**. Review and correct the extracted fields before saving. Search/extraction do not apply for jobs.
 
-Set an API key in **Automation → Firecrawl web discovery** for the current server session, or configure `FIRECRAWL_API_KEY` in the server environment before starting JobPilot. Keys entered in the app remain in server memory and are never exported. The documented guest path may be unavailable or rate-limited; the live keyless check in this environment returned HTTP 403. Account credits and service limits apply.
+Set an API key in **Automation → Firecrawl web discovery** for the current server session, or configure `FIRECRAWL_API_KEY` in the server environment before starting JobPilot. Keys entered in the app remain in server memory and are never exported. Guest search and posting extraction were verified without a key on 2026-09-28; guest access can still be unavailable or rate-limited. If a guest request is rejected, configure a key or use manual import. Account credits and service limits apply.
 
-Only the posting URL or explicit search query is sent to Firecrawl. Applicant profiles and résumé files are not sent. Manual import and public ATS discovery work without Firecrawl. This integration uses the [v2 single-page JSON extraction API](https://docs.firecrawl.dev/features/llm-extract) and [v2 search API](https://docs.firecrawl.dev/features/search).
+Only the posting URL or explicit search query is sent to Firecrawl. Applicant profiles and résumé files are not sent. Manual import and public ATS discovery work without Firecrawl. This integration uses the [v2 single-page JSON extraction API](https://docs.firecrawl.dev/features/llm-extract) and [v2 search API](https://docs.firecrawl.dev/features/search). HTTPS uses the same certificate verification as ATS discovery, including the system CA bundle fallback for macOS Python installations missing their default bundle.
 
 For broader searches, the optional [JobSpy](https://github.com/speedyapply/JobSpy) importer reads roles and location from the saved profile:
 
@@ -141,6 +141,17 @@ Python tests use the standard library. Node 18+ is only needed for helper tests,
 python3 -m unittest discover -s tests -v
 node --test tests/extension.test.js
 ```
+
+To also check real résumé PDF compilation and extracted text, install Tectonic
+and Poppler (`pdftotext`), then run:
+
+```sh
+JOBPILOT_TEST_PDF=1 python3 -m unittest discover -s tests -q
+```
+
+This optional test is skipped by default. A fictional résumé for visual review
+can be generated with `python3 tests/render_resume.py`; see
+[`docs/VERIFICATION.md`](docs/VERIFICATION.md) for the current checkpoint.
 
 The suite covers matching, skill gaps, runtime role suggestions, geography, stale postings, source normalization/pagination, URL handling, evidence-preserving materials, transactional deduplication, approval invalidation, concurrent claims, uncertain submission recovery, authenticated HTTP workflows, exports, and helper submission gates.
 

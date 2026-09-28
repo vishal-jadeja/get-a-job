@@ -66,12 +66,18 @@ class NoRedirect(HTTPRedirectHandler):
         raise ValueError("Unexpected upstream redirect; update the board configuration")
 
 
-def fetch_json(url):
+def tls_context():
+    """Use verified HTTPS, including the OS CA fallback for python.org on macOS."""
     context = ssl.create_default_context()
     # python.org's macOS installer may lack its optional certifi bundle. Use the
     # OS-provided CA bundle when that happens; certificate checks remain enabled.
     if sys.platform == "darwin" and not ssl.get_default_verify_paths().cafile and Path("/etc/ssl/cert.pem").exists():
         context.load_verify_locations(cafile="/etc/ssl/cert.pem")
+    return context
+
+
+def fetch_json(url):
+    context = tls_context()
     for attempt in range(3):
         try:
             req = Request(url, headers={"User-Agent": "JobPilot/1.0 (personal job discovery)", "Accept": "application/json"})

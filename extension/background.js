@@ -34,6 +34,7 @@ async function runBatch(autoSubmit,limit){
       if(!JobPilotRules.sameApplication(job.url,(await chrome.tabs.get(tab.id)).url))throw Error('Application destination changed; review manually');
       if(stopRequested)throw Error('Stopped before submission');
       await action(job.id,'submitting','Attempt started by approved Lever adapter');submitting=true;
+      if(stopRequested)throw Error('Stopped before the submit click; no click was sent. Verify the application before retrying.');
       const result=await execute(tab.id,()=>globalThis.jobPilotSubmit());
       if(!result.clicked)throw Error(result.error);
       let confirmed=null;
