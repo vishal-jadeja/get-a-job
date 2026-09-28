@@ -197,12 +197,18 @@ class Store:
         profile = self.setting("profile")
         with self.db() as db:
             rows = db.execute("SELECT * FROM jobs ORDER BY created_at DESC").fetchall()
+            # Use the full ledger, not the dashboard's 100-event activity window.
+            # Archiving or later rejection must not erase a recorded interview.
+            outcomes = {}
+            for event in db.execute("SELECT DISTINCT job_id,kind FROM events WHERE kind IN ('interview','offer','rejected')"):
+                outcomes.setdefault(event["job_id"], []).append(event["kind"])
         result = []
         for row in rows:
             item = json.loads(row["payload"])
             item.update({k: row[k] for k in ("id", "status", "notes", "created_at", "updated_at", "submitted_at")})
             item["match"] = match(item, profile)
             item["has_materials"] = bool(row["materials"])
+            item["outcomes"] = sorted(outcomes.get(row["id"], []))
             result.append(item)
         return sorted(result, key=lambda j: (-j["match"]["score"], j["title"]))
 

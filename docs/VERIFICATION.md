@@ -1,5 +1,26 @@
 # Verification checkpoint — 2026-09-28
 
+## Latest continuation
+
+- Current dependency-free suite: `python3 -m unittest discover -s tests -q`
+  ran 68 tests: 67 passed and the optional PDF compilation test was skipped.
+- `node --test tests/*.test.js`: 23 tests passed (13 rules/worker tests and
+  10 content-adapter tests with a simulated DOM). No employer forms were submitted.
+- Fixed final-submit revalidation: a changed answer, replaced/new control,
+  missing upload, new CAPTCHA/custom widget, disconnected form, changed job URL,
+  invalid number, or ambiguous form stops the helper. The filled form snapshot
+  is consumed once so repeated submit calls cannot click twice.
+- Fixed lifetime analytics: recorded responses, interviews, and offers survive
+  later rejection and archiving. Outcomes come from the complete event ledger,
+  independent of the 100-entry recent-activity window. The current pipeline shows
+  mutually exclusive present stages instead of mixing cumulative and current counts.
+- Browser QA in a disposable workspace: manually recorded a fictional submission,
+  recorded an interview, and archived it. Analytics correctly retained one
+  confirmed submission and one interview, while the current pipeline showed two
+  discovered jobs and one archived job. Source conversion retained the interview.
+- Inspected and saved the analytics screenshot at `output/qa/analytics.png`
+  (ignored test output; fictional data only). Restored the README startup command.
+
 ## Passed
 
 - `JOBPILOT_TEST_PDF=1 python3 -m unittest discover -s tests -q`: 67 tests passed,

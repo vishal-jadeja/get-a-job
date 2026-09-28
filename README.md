@@ -9,8 +9,7 @@ The core app uses Python's standard library, SQLite, and plain JavaScript. No su
 Requires Python **3.10+**. From this folder:
 
 ```sh
-
-
+python3 -m jobpilot
 ```
 
 Open **http://127.0.0.1:8765**. Another port or data directory:
@@ -31,7 +30,7 @@ Keep the server running for scheduled discovery. Each data directory is a separa
 4. Click **Save & find my jobs**. The app fetches the configured companies' Greenhouse, Lever, Lever EU, and Ashby feeds, deduplicates jobs, and scores them against your current profile.
 5. In **Discover jobs**, select jobs and prepare them in batches. Open a job to review its fit, missing skill evidence, résumé draft, cover letter, and source posting. Download its ZIP; `resume.html` can be printed to PDF from your browser.
 6. Approve reviewed applications individually or in a selected batch. Under **Applications**, select approved jobs and click **Queue selected**. Connect the browser helper from **Automation** and run that queue.
-7. Track results under **Applications**. Record manual submission confirmations, interviews, offers, or rejections. **Analytics** shows confirmed volume, recorded response rate, interview/offer stage rate, weekly submissions, source performance, and the event log.
+7. Track results under **Applications**. Record manual submission confirmations, interviews, offers, or rejections. **Analytics** shows confirmed volume, lifetime response/interview rates, weekly submissions, source performance, and the event log. Recorded outcomes remain counted after rejection or archiving; the pipeline separately shows current stages.
 
 Changes to a profile, résumé, or posting invalidate pending materials and approvals. Submitted applications retain their history. The helper claims each approved record atomically to prevent concurrent duplicate attempts.
 
@@ -74,6 +73,8 @@ Role profiles control draft content; the résumé library contains actual attach
 Autofill on Greenhouse/Ashby is a generic standard-field adapter, not comprehensive platform support. Enter first/last names explicitly in the profile; the helper never splits a full name to guess them. Custom widgets, legal or demographic answers, CAPTCHA, login, and multi-step forms may need manual handling. Unknown answers are left blank. No CAPTCHA bypass, stealth tooling, password storage, or recruiter-email sending is included.
 
 The browser helper has **not been validated by submitting real applications**. Its submit gate and state handling are tested; live employer forms vary. Start with autofill-only mode. For a form you submit manually, use **Confirm submitted manually** and record its actual confirmation in the app.
+
+Immediately before an automatic submit click, the helper checks the filled form again. Changed questions, answers, attachments, validation, or destinations stop the attempt for review. A filled form can produce at most one automatic click.
 
 If a click is sent but no recognizable confirmation appears, the status becomes `submission_unknown`. It is excluded from confirmed analytics and cannot be automatically requeued. Check the employer portal or confirmation email, then record the verified result. Unfinished browser claims expire after 15 minutes into review-needed or unknown state.
 
@@ -139,7 +140,7 @@ Python tests use the standard library. Node 18+ is only needed for helper tests,
 
 ```sh
 python3 -m unittest discover -s tests -v
-node --test tests/extension.test.js
+node --test tests/*.test.js
 ```
 
 To also check real résumé PDF compilation and extracted text, install Tectonic

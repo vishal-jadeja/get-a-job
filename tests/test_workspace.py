@@ -135,6 +135,23 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(self.store.job(self.jid)['status'], 'discovered')
         self.assertIsNone(self.store.job(self.jid)['approval'])
 
+    def test_analytics_retains_outcomes_after_archive_and_activity_rollover(self):
+        self.store.action(self.jid, 'submitted_manual', 'Fictional confirmation')
+        self.store.action(self.jid, 'interview', 'First interview')
+        self.store.action(self.jid, 'interview', 'Second interview')
+        self.store.action(self.jid, 'offer', 'Offer received')
+        self.store.action(self.jid, 'rejected', 'Offer withdrawn')
+        self.store.action(self.jid, 'archive')
+        with self.store.db() as db:
+            for n in range(105):
+                self.store.event(db, self.jid, 'note', f'Activity {n}')
+        restored = Store(self.tmp.name)
+        job = restored.jobs()[0]
+        self.assertEqual(job['outcomes'], ['interview', 'offer', 'rejected'])
+        self.assertEqual(job['status'], 'archived')
+        self.assertTrue(job['submitted_at'])
+        self.assertTrue(all(e['kind'] == 'note' for e in restored.bootstrap()['events']))
+
     def test_bundles_include_each_job_and_reject_unprepared_selection(self):
         with self.assertRaises(ValueError):
             self.workspace.bundles([self.jid])
