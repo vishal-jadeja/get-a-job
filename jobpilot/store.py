@@ -17,8 +17,9 @@ DEFAULT_PROFILE = {"name": "", "first_name": "", "last_name": "", "email": "", "
                    "skills": [], "technologies": [], "experience": [], "projects": [], "education": [],
                    "certifications": [], "achievements": [], "languages": [], "resume_text": "", "roles": [],
                    "locations": [], "excluded_companies": [], "excluded_keywords": [], "required_keywords": [],
-                   "years_experience": None, "min_score": 45, "max_age_days": 45, "answers": {}}
+                   "years_experience": None, "needs_sponsorship": "unknown", "min_score": 45, "max_age_days": 45, "answers": {}}
 DEFAULT_SOURCES = [
+    {"kind": "yc", "board": "engineering", "company": "YC engineering startups", "enabled": True},
     {"kind": "greenhouse", "board": "stripe", "company": "Stripe", "enabled": True},
     {"kind": "greenhouse", "board": "cloudflare", "company": "Cloudflare", "enabled": True},
     {"kind": "greenhouse", "board": "hubspot", "company": "HubSpot", "enabled": True},
@@ -105,6 +106,8 @@ class Store:
                 profile[key] = str(value or "")[:30000]
         if not 0 <= profile["min_score"] <= 100 or not 1 <= profile["max_age_days"] <= 365:
             raise ValueError("Score must be 0–100 and maximum age 1–365 days")
+        if profile['needs_sponsorship'] not in ('yes', 'no', 'unknown'):
+            raise ValueError('Sponsorship preference must be yes, no, or unknown')
         if profile["email"] and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", profile["email"]):
             raise ValueError("Enter a valid email address")
         profile["skills"] = list(dict.fromkeys(profile["skills"] + profile["technologies"]))
@@ -161,10 +164,17 @@ class Store:
             if not str(job.get("title", "")).strip() or not str(job.get("company", "")).strip():
                 raise ValueError("Every job needs a title and company")
             remote = bool(job.get("remote"))
+            partial = bool(job.get('description_partial', False))
+            yc_fields = {k: str(job.get(k, '') or '')[:500] for k in ('yc_batch', 'yc_activity', 'company_url')}
             job = {k: str(job.get(k, "") or "")[:60000] for k in
                    ("title", "company", "location", "url", "description", "source", "board", "external_id", "posted_at")}
             job["url"] = clean_url(job["url"])
             job["remote"] = remote
+            if job['source'] == 'yc':
+                from .yc import public_url
+                if yc_fields['company_url']:
+                    yc_fields['company_url'] = public_url(yc_fields['company_url'])
+                job.update(yc_fields, description_partial=partial)
             normalized.append(job)
         added = 0
         with self.db() as db:
@@ -175,6 +185,10 @@ class Store:
                 existing = db.execute("SELECT * FROM jobs WHERE id=? OR url=?", (jid, job["url"])).fetchone()
                 if existing:
                     previous = json.loads(existing["payload"])
+                    if job.get('description_partial') and previous.get('source') == 'yc' and not previous.get('description_partial', True):
+                        # Listing refreshes must not overwrite hydrated descriptions.
+                        job['description'] = previous['description']
+                        job['description_partial'] = False
                     if previous.get('resume_asset'):
                         job['resume_asset'] = previous['resume_asset']
                     if previous.get('resume_variant_id'):
@@ -235,6 +249,8 @@ class Store:
             profile = self.setting("profile")
             new_status = status
             if action == "prepare":
+                if job.get('description_partial'):
+                    raise ValueError('Load the complete YC posting before preparing this application')
                 if status not in {"discovered", "prepared", "needs_review"}:
                     raise ValueError("This application cannot be prepared in its current state")
                 variants = [json.loads(r[0]) for r in db.execute('SELECT payload FROM resume_variants ORDER BY rowid')]

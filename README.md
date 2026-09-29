@@ -90,7 +90,31 @@ The rule-based matcher is deliberately inspectable and free. It does not underst
 
 ## Expand discovery
 
-The nine starter company boards are examples, not the entire job market. Add employer slugs under **Job sources**, or import arbitrary postings through **Add job**. A sample import schema is in [`examples/jobs.json`](examples/jobs.json). JSON import accepts up to 5,000 records per request.
+The nine starter company boards plus YC's public engineering source are examples, not the entire job market. Add employer slugs under **Job sources**, or import arbitrary postings through **Add job**. A sample import schema is in [`examples/jobs.json`](examples/jobs.json). JSON import accepts up to 5,000 records per request.
+
+### YC engineering startups
+
+Open **YC startups → Refresh YC jobs**, or run ordinary discovery with the YC source enabled. The free connector reads YC's public engineering listing and linked location pages, deduplicates postings, and groups them by company. No API key or YC account is needed for these pages.
+
+The startup list sorts by newer YC batch, then the listing's reported hiring activity. “Trending” has no universal verified ranking; this is an explicit prioritization rule. Search by company, role, location, or batch, and optionally show only current/previous-year batches. Batch and activity values are reported by YC, not independently verified. A relative activity value is never fabricated into a publication date.
+
+Public listing summaries may omit requirements. They are marked **Summary only**, do not receive a skill-coverage percentage, and cannot be used to prepare applications until the complete job description is loaded. Discovery loads full descriptions for up to 10 summaries that meet your profile's preliminary filters/score; **Load full job** handles the rest. Loading requirements may change the match score and invalidate previous materials if the posting changed.
+
+The YC page shows listings from the last successful scan. Previously imported jobs remain in your tracker even if they disappear from that public list. Check the original page for current availability. Public pages are a subset of YC's signed-in directory: this is not a promise to cover every YC startup or every vacancy. On 2026-09-29 a live read-only scan found 148 engineering postings across 86 companies on nine public pages.
+
+### Company LinkedIn, peers, recruiters, and outreach
+
+Each job now has **People behind this opportunity**. Use **Find / refresh contacts** to discover company LinkedIn candidates, up to three same-role peer candidates and three HR/recruiting candidates from public search results. YC postings can also supply company/founder links directly. Founder contacts are clearly labeled separately from engineers or recruiters.
+
+- Automatic research is enabled by default after imports and suitable-match discovery, with a cap of **five company/role lookups per run**. Change the cap (1–20) or turn it off under **Automation**. Each lookup makes up to three Firecrawl search requests. Jobs beyond the cap still have manual search links and local outreach drafts; research them individually from the job workspace.
+- Results are cached for seven days; unsuccessful lookups expire after one hour. An explicit refresh can run sooner. Failed refreshes retain earlier candidates with their original-results date.
+- Only public company names and job titles go to search. Your profile, résumé, and generated outreach are not sent to Firecrawl or LinkedIn. Guest search may be limited; a configured Firecrawl key uses its account credits. Manual links and local message generation remain free without an API.
+- Cards show the source URL, snippet, lookup date, and provenance. Search results are **candidates, not verified current employees**. Similar company names and old profiles require your review. No names, employers, or LinkedIn URLs are invented to fill missing results.
+- **Save contact** adds the person to Contacts with the linked application and source notes, without duplicating the same person/job combination.
+- **Draft personal message** produces an editable connection note (up to 300 characters) and a short job-specific message. Both use matching skills and a verbatim excerpt of saved experience/project evidence. You can inspect that evidence, edit the draft, and copy it. Your LinkedIn interface may have a smaller limit; adjust the note there.
+- Saved contacts linked to a job also get these personalized drafts from **Contacts → Draft outreach**. Nothing sends messages, connection requests, or recruiter emails automatically.
+
+The connector does not log in to LinkedIn or scrape its profile pages. It uses public web-search snippets and links explicitly published on YC pages.
 
 ### Optional Firecrawl search and URL import
 

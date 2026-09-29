@@ -88,10 +88,14 @@ function sources(){return heading('EXPAND YOUR HORIZONS','Good opportunities sta
  <aside><form class="panel" id="source-form"><h2>Add a company</h2><label>Job platform<select name="kind"><option value="greenhouse">Greenhouse</option><option value="lever">Lever</option><option value="lever_eu">Lever EU</option><option value="ashby">Ashby</option></select></label><label>Company name<input name="company" required placeholder="Company name"></label><label>Board slug<input name="board" required pattern="[A-Za-z0-9_-]+" placeholder="e.g. stripe"></label><p class="help">The slug appears in the employer’s board URL: <code>jobs.lever.co/company</code>, <code>boards.greenhouse.io/company</code>, or <code>jobs.ashbyhq.com/company</code>.</p><button class="button primary">Connect source +</button></form><section class="panel"><h3>Found a job somewhere else?</h3><p class="help">Import any posting manually or use a JSON export. An optional JobSpy importer is included for broader discovery from job boards.</p>${button('Add an opportunity','import')}</section></aside></div><div class="section-note" id="sync-status">${e(state.sync.message)}. The starter directory is a sample of employers, not the entire job market. Add companies relevant to your roles and locations.</div>`}
 
 function render(){
- $$('nav a').forEach(a=>{a.classList.toggle('active',a.dataset.view===view);if(a.dataset.view===view)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});$('#page-label').textContent=({overview:'Today',profile:'Career profile',discover:'Discover jobs',sources:'Job sources'})[view]||titleCase(view);
+ $$('nav a').forEach(a=>{a.classList.toggle('active',a.dataset.view===view);if(a.dataset.view===view)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});$('#page-label').textContent=({overview:'Today',profile:'Career profile',discover:'Discover jobs',sources:'Job sources',yc:'YC startups'})[view]||titleCase(view);
  $('#nav-jobs').textContent=matchedJobs().length;$('#nav-apps').textContent=state.jobs.filter(j=>j.status!=='discovered').length;$('#sidebar-user').textContent=state.profile.name||'Your next chapter starts here.';
- $('#main').innerHTML=({overview:todayView,profile,discover:()=>workspaceJobsView(false),applications:()=>workspaceJobsView(true),planner:plannerView,contacts:contactsView,analytics,automation,sources}[view]||todayView)();
+ $('#main').innerHTML=({overview:todayView,profile,discover:()=>workspaceJobsView(false),yc:ycView,applications:()=>workspaceJobsView(true),planner:plannerView,contacts:contactsView,analytics,mail:mailView,automation,sources}[view]||todayView)();
+ if(view==='mail')loadMail().catch(err=>toast(err.message,true));
+ if(view==='automation')$('#main').insertAdjacentHTML('beforeend',networkingSettings());
  if(view==='profile'){
+  $('#main aside').insertAdjacentHTML('afterbegin',resumeImportPanel());
+  $('#profile-form').insertAdjacentHTML('beforeend',`<label>Do you need employer visa sponsorship?<select name="needs_sponsorship">${['unknown','yes','no'].map(x=>`<option value="${x}" ${(state.profile.needs_sponsorship||'unknown')===x?'selected':''}>${titleCase(x)}</option>`).join('')}</select></label><p class="help">Used only to flag posting restrictions. It does not infer your work authorization or answer country-specific forms.</p>`);
   const essentials=$('#profile-form .form-grid');
   essentials.insertAdjacentHTML('beforeend',input('first_name','First / given name (for autofill)')+input('last_name','Last / family name (for autofill)'));
   $('#main aside').insertAdjacentHTML('afterbegin',resumeLibrary());
@@ -113,6 +117,8 @@ async function detail(jid){
  <details ${material?'':'open'}><summary>Job description</summary><div class="detail-description">${e(job.description||'No description was provided.')}</div></details>
  <div class="subtle-separator"></div><h3>Track this application</h3><form id="status-form"><div class="form-grid"><label>Record an outcome<select name="action"><option value="note">Save notes only</option><option value="submitted">Confirm submitted manually</option><option value="interview">Interview</option><option value="offer">Offer</option><option value="rejected">Rejected</option></select></label><label>Confirmation / note<input name="detail" placeholder="Confirmation text, date, or interview details"></label></div><button class="button">Update application</button></form><p class="help">${e(job.notes||'No notes yet.')} ${job.submitted_at?'Submitted '+e(new Date(job.submitted_at).toLocaleString()):''}</p><details><summary>Complete application history · ${job.events.length} events</summary>${job.events.map(x=>`<p class="help"><strong>${e(titleCase(x.kind))}</strong> · ${e(new Date(x.created_at).toLocaleString())}<br>${e(x.detail)}</p>`).join('')}</details>`;
  $('#detail-content .detail-actions').insertAdjacentHTML('afterend',workspaceDetail(job));
+ $('#detail-content .detail-actions').insertAdjacentHTML('afterend',networkingPanel(job));
+ $('#detail-content .detail-actions').insertAdjacentHTML('afterend',requirementsPanel(job));
  if(material){
   $('#detail-content .detail-actions').insertAdjacentHTML('beforeend',wsButton('Download LaTeX','latex','',`data-id="${job.id}"`)+wsButton('Download PDF','pdf','',`data-id="${job.id}"`));
   if(['prepared','approved','needs_review'].includes(job.status))$('#job-resume-form').insertAdjacentHTML('beforeend',wsButton('Use tailored PDF as attachment','use-pdf','primary',`data-id="${job.id}"`));
@@ -120,6 +126,8 @@ async function detail(jid){
  if(job.resume_asset){const help=$$('#detail-content p.help').find(p=>p.textContent.includes('Review your original résumé attachment'));if(help)help.innerHTML=`${e(material?.note||'')} Selected attachment: <strong>${e(job.resume_asset.name)}</strong>.`;}
  const manual=$('#status-form option[value="submitted"]');if(manual)manual.value='submitted_manual';
  if(!$('#detail-dialog').open)$('#detail-dialog').showModal();
+ loadNetworking(jid).catch(err=>toast(err.message,true));
+ if(state.networking?.progress?.running)watchResearch();
 }
 
 async function action(name){

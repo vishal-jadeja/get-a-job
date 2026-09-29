@@ -1,4 +1,26 @@
-# Verification checkpoint — 2026-09-28
+# Verification checkpoint — 2026-09-29
+
+## Networking and YC discovery
+
+- Full suite: 83 Python tests run, 82 passed and the optional PDF integration test
+  skipped; 23 Node helper tests passed. Python/JavaScript syntax and diff checks passed.
+- Added a public YC engineering connector with linked-location traversal, job-ID
+  deduplication, batch/activity metadata, partial-description handling and explicit
+  coverage reporting. No authenticated YC directory or hidden API is used.
+- Live scan on 2026-09-29: nine public pages, 148 engineering postings, 86 companies,
+  no page errors. Listings are source-reported; availability must be checked at source.
+- Live free guest-search check for Stripe / Software Engineer returned two company
+  candidates and six people candidates (three recruiting, three engineering).
+  Current employment was not verified; no LinkedIn profile pages were scraped.
+- Browser fixture QA verified the company/people cards, saved-contact action,
+  evidence-grounded recruiter draft (145-character connection note), and YC startup
+  view with summary-only labels. No messages, invitations, or applications were sent.
+- Screenshot: `output/qa/networking-message.png`, fictional applicant/contact data.
+- Loaded the live scan's 148 YC postings into the normal local workspace. No
+  applicant profile changes, outreach sends, or application submissions were made.
+- Tests cover candidate provenance, employer/role checks, hostile URLs, message
+  length and evidence, cache persistence/expiration, error fallback, YC parsing,
+  deduplication, partial-page failures, hydration, and authenticated API workflows.
 
 ## Latest continuation
 

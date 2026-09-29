@@ -13,12 +13,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 from .sources import discover
 from .store import Store, now
 from .workspace import Workspace
 from . import firecrawl
 from . import latex_resume
+from . import yc
+from .networking import Networking, drafts
+from . import resume_import
+from .gmail import Gmail, DEFAULT_QUERY
+from .mail_tracking import MailTracker
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -27,13 +32,21 @@ class App:
     def __init__(self, store):
         self.store = store
         self.workspace = Workspace(store)
+        self.gmail = Gmail(store.directory)
+        self.mail = MailTracker(store)
         self.firecrawl_key = os.environ.get('FIRECRAWL_API_KEY', '')
+        self.networking = Networking(store, key_provider=lambda: self.firecrawl_key)
+        self.yc_lock = threading.Lock()
+        self.yc_status = store.setting('yc_status') or {'running': False, 'message': 'YC discovery has not run', 'pages': 0, 'companies': 0}
+        self.yc_status['running'] = False
         self.firecrawl_lock = threading.Lock()
         self.pdf_lock = threading.Lock()
         self.sync_lock = threading.Lock()
         self.sync_status = {"running": False, "message": "Ready to discover jobs", "added": 0}
 
     def sync(self, prepare_matches=False):
+        if self.yc_lock.locked():
+            return False
         if not self.sync_lock.acquire(blocking=False):
             return False
         self.sync_status = {"running": True, "message": "Reading public job boards…", "added": 0}
@@ -42,11 +55,17 @@ class App:
             try:
                 sources = [s for s in self.store.sources() if s["enabled"]]
                 with ThreadPoolExecutor(max_workers=3) as pool:
-                    futures = {pool.submit(discover, s): s for s in sources}
+                    futures = {pool.submit(yc.discover) if s['kind'] == 'yc' else pool.submit(discover, s): s for s in sources}
                     for future in as_completed(futures):
                         source = futures[future]
                         try:
-                            jobs = future.result()
+                            result = future.result()
+                            if source['kind'] == 'yc':
+                                jobs = result['jobs']
+                                self.record_yc(result)
+                                errors.extend(result['errors'])
+                            else:
+                                jobs = result
                             added += self.store.upsert_jobs(jobs)
                             total += len(jobs)
                             with self.store.db() as db:
@@ -57,6 +76,7 @@ class App:
                             with self.store.db() as db:
                                 db.execute("UPDATE sources SET last_sync=?,error=? WHERE id=?", (now(), error, source["id"]))
                         self.sync_status.update(added=added, message=f"Read {total} jobs · {added} new · {len(errors)} source errors")
+                self.hydrate_yc_matches()
                 automation = self.store.setting("automation")
                 if prepare_matches:
                     limit = automation["batch_size"]
@@ -75,6 +95,7 @@ class App:
                 self.store.set_setting("automation", automation)
                 self.sync_status = {"running": False, "added": added, "total": total, "errors": errors,
                                     "message": f"Discovery complete · {added} new jobs · {len(errors)} errors"}
+                self.auto_network()
             except Exception as exc:
                 self.sync_status = {"running": False, "added": added, "message": "Discovery failed", "errors": [str(exc)]}
             finally:
@@ -82,9 +103,77 @@ class App:
         threading.Thread(target=run, daemon=True).start()
         return True
 
+    def auto_network(self):
+        if self.store.setting('networking')['automatic']:
+            jobs = [j for j in self.store.jobs() if j['match']['eligible'] and j['match']['score'] >= self.store.setting('profile')['min_score']]
+            self.networking.start(jobs)
+
+    def record_yc(self, result):
+        self.yc_status = {'running': False, 'checked_at': now(), 'pages': result['pages'],
+                          'listed_urls': [j['url'] for j in result['jobs']],
+                          'companies': len({j['company'] for j in result['jobs']}),
+                          'jobs': len(result['jobs']), 'errors': result['errors'], 'coverage': result['coverage'],
+                          'message': f"Found {len(result['jobs'])} public YC engineering postings"}
+        self.store.set_setting('yc_status', self.yc_status)
+        with self.store.db() as db:
+            db.execute("UPDATE sources SET last_sync=?,count=?,error=? WHERE kind='yc' AND board='engineering'",
+                       (self.yc_status['checked_at'], len(result['jobs']),
+                        '; '.join(result['errors'])[:2000] or None))
+
+    def hydrate_yc_matches(self):
+        profile = self.store.setting('profile')
+        if not profile.get('roles'):
+            return
+        from .matching import match
+        selected = []
+        for job in self.store.jobs():
+            if job.get('source') != 'yc' or not job.get('description_partial'):
+                continue
+            if job['url'] not in self.yc_status.get('listed_urls', []):
+                continue
+            fit = match({**job, 'description_partial': False}, profile)
+            if fit['eligible'] and fit['score'] >= profile['min_score']:
+                selected.append(job)
+            if len(selected) >= 10:
+                break
+        for job in selected:
+            try:
+                full, _, _ = yc.detail(job['url'])
+                self.store.upsert_jobs([full])
+            except Exception as exc:
+                self.yc_status.setdefault('errors', []).append('Full posting: ' + str(exc)[:150])
+
+    def discover_yc(self):
+        if self.sync_lock.locked() or not self.yc_lock.acquire(blocking=False):
+            return False
+        self.yc_status = {**self.yc_status, 'running': True, 'message': 'Reading public YC engineering listings…'}
+        def run():
+            try:
+                result = yc.discover()
+                added = self.store.upsert_jobs(result['jobs'])
+                self.record_yc(result)
+                self.yc_status['running'] = True
+                self.yc_status['message'] = 'Loading complete requirements for up to 10 profile matches…'
+                self.hydrate_yc_matches()
+                self.yc_status.update(running=False, message=f"Found {len(result['jobs'])} public YC engineering postings")
+                self.yc_status['added'] = added
+                self.store.set_setting('yc_status', self.yc_status)
+                self.auto_network()
+            except Exception as exc:
+                self.yc_status.update(running=False, message='YC discovery failed: ' + str(exc)[:200])
+            finally:
+                self.yc_lock.release()
+        threading.Thread(target=run, daemon=True).start()
+        return True
+
     def scheduler(self):
         while True:
             time.sleep(30)
+            mail_settings = self.store.setting('gmail_sync')
+            last_mail = mail_settings.get('last_run')
+            if mail_settings['enabled'] and self.gmail.status()['connected'] and (not last_mail or
+                    (datetime.now(timezone.utc)-datetime.fromisoformat(last_mail)).total_seconds() >= mail_settings['interval_minutes']*60):
+                self.mail.sync(self.gmail)
             config = self.store.setting("automation")
             if not config["enabled"]:
                 continue
@@ -147,13 +236,22 @@ def handler_class(app):
                 if not self.allowed_host():
                     return self.send({"error": "Invalid local host"}, 403)
                 path = urlsplit(self.path).path
+                if method == 'GET' and path == '/oauth/gmail/callback':
+                    params = parse_qs(urlsplit(self.path).query)
+                    try:
+                        app.gmail.callback(params.get('state', [''])[0], params.get('code', [''])[0], params.get('error', [''])[0])
+                        message = 'Gmail connected with read-only access. Return to JobPilot to sync application emails.'
+                    except ValueError as exc:
+                        message = str(exc)
+                    import html
+                    return self.send('<!doctype html><meta charset="utf-8"><title>JobPilot Gmail connection</title><h1>JobPilot</h1><p>'+html.escape(message)+'</p><a href="/#mail">Return to email tracking</a>', content_type='text/html; charset=utf-8')
                 if not path.startswith("/api/"):
                     if method != "GET":
                         return self.send({"error": "Not found"}, 404)
                     if path == "/":
                         page = (ROOT / "static/index.html").read_text(encoding="utf-8").replace("__TOKEN__", app.store.setting("token"))
                         return self.send(page, content_type="text/html; charset=utf-8")
-                    assets = {"/app.js": "static/app.js", "/workspace.js": "static/workspace.js", "/workspace.css": "static/workspace.css", "/styles.css": "static/styles.css", "/icon.svg": "static/icon.svg"}
+                    assets = {"/app.js": "static/app.js", "/intelligence.js": "static/intelligence.js", "/networking.js": "static/networking.js", "/workspace.js": "static/workspace.js", "/workspace.css": "static/workspace.css", "/styles.css": "static/styles.css", "/icon.svg": "static/icon.svg"}
                     if path in assets:
                         file = ROOT / assets[path]
                         return self.send(file.read_bytes(), content_type=mimetypes.guess_type(file.name)[0] or "text/plain")
@@ -173,7 +271,71 @@ def handler_class(app):
                     state["sync"] = app.sync_status
                     state["workspace"] = app.workspace.state()
                     state["integrations"] = {'firecrawl': {'configured': bool(app.firecrawl_key)}, 'latex': {'available': bool(latex_resume.compiler())}}
+                    state['networking'] = {'settings': app.store.setting('networking'), 'progress': app.networking.progress}
+                    state['yc'] = app.yc_status
+                    state['gmail'] = app.gmail.status()
                     return self.send(state)
+                if method == 'POST' and path == '/api/resume/preview':
+                    if data.get('use_saved'):
+                        file = app.store.setting('profile').get('resume_file')
+                        if not file:
+                            raise ValueError('Upload a résumé first')
+                        return self.send(resume_import.preview(file['name'], base64.b64encode((app.store.directory/'resume.bin').read_bytes()).decode()))
+                    return self.send(resume_import.preview(data['name'], data['base64']))
+                if method == 'POST' and path == '/api/resume/merge':
+                    fields = data.get('fields')
+                    allowed = {'name','email','phone','linkedin','website','skills','technologies','experience','projects','education','certifications','achievements','languages','resume_text'}
+                    if not isinstance(fields, dict) or not fields or set(fields)-allowed:
+                        raise ValueError('Select résumé fields to merge')
+                    profile = app.store.setting('profile')
+                    for key, value in fields.items():
+                        if isinstance(profile.get(key), list):
+                            if not isinstance(value, list) or any(not isinstance(x, str) for x in value):
+                                raise ValueError('List fields must contain text entries')
+                            profile[key] = list(dict.fromkeys(profile[key]+value))
+                        elif not isinstance(value, str):
+                            raise ValueError('Use text for contact fields')
+                        elif key == 'resume_text' and profile.get(key):
+                            if value not in profile[key]:
+                                profile[key] += '\n\n' + value
+                        else:
+                            profile[key] = value
+                    return self.send(app.store.save_profile(profile))
+                if method == 'GET' and path == '/api/mail':
+                    return self.send({**app.mail.state(), 'gmail': app.gmail.status(), 'default_query': DEFAULT_QUERY})
+                if method == 'POST' and path == '/api/gmail/configure':
+                    return self.send(app.gmail.configure(data))
+                if method == 'POST' and path == '/api/gmail/connect':
+                    return self.send({'url': app.gmail.connect_url(self.server.server_port)})
+                if method == 'POST' and path == '/api/gmail/disconnect':
+                    settings = app.store.setting('gmail_sync'); settings['enabled'] = False
+                    app.store.set_setting('gmail_sync', settings)
+                    return self.send(app.gmail.disconnect())
+                if method == 'POST' and path == '/api/gmail/sync':
+                    return self.send({'started': app.mail.sync(app.gmail)}, 202)
+                if method == 'POST' and path == '/api/gmail/settings':
+                    interval = int(data.get('interval_minutes', 30))
+                    query = data.get('query', '')
+                    if not isinstance(data.get('enabled'), bool) or not 15 <= interval <= 1440 or not isinstance(query, str) or len(query) > 1000:
+                        raise ValueError('Use a 15–1440 minute interval and a query of at most 1,000 characters')
+                    settings = {**app.store.setting('gmail_sync'), 'enabled': data['enabled'], 'interval_minutes': interval, 'query': query}
+                    app.store.set_setting('gmail_sync', settings)
+                    return self.send(settings)
+                if method == 'POST' and path == '/api/mail/review':
+                    return self.send(app.mail.review(data['id'], data['action'], data.get('job_id', ''), data.get('status', '')))
+                if method == 'POST' and path == '/api/yc/discover':
+                    return self.send({'started': app.discover_yc()}, 202)
+                if method == 'GET' and path == '/api/research/status':
+                    return self.send({'yc': app.yc_status, 'networking': app.networking.progress})
+                if method == 'POST' and path == '/api/networking/settings':
+                    if not isinstance(data.get('automatic'), bool):
+                        raise ValueError('Choose automatic research on or off')
+                    limit = int(data.get('max_per_run', 5))
+                    if not 1 <= limit <= 20:
+                        raise ValueError('Choose 1–20 company/role lookups per run')
+                    config = {'automatic': data['automatic'], 'max_per_run': limit}
+                    app.store.set_setting('networking', config)
+                    return self.send(config)
                 if method == "POST" and path == "/api/integrations/firecrawl":
                     key = data.get('key', '')
                     if not isinstance(key, str) or len(key) > 500 or any(ord(c) < 32 or ord(c) > 126 for c in key):
@@ -235,7 +397,12 @@ def handler_class(app):
                     jobs = data.get("jobs", [])
                     if not isinstance(jobs, list) or not 1 <= len(jobs) <= 5000:
                         raise ValueError("Import 1–5,000 job records")
-                    return self.send({"added": app.store.upsert_jobs(jobs)})
+                    added = app.store.upsert_jobs(jobs)
+                    if app.store.setting('networking')['automatic']:
+                        from .sources import clean_url
+                        imported_urls = {clean_url(j['url']) for j in jobs}
+                        app.networking.start([j for j in app.store.jobs() if j['url'] in imported_urls])
+                    return self.send({"added": added})
                 if method == "POST" and path == "/api/batch":
                     if not isinstance(data.get('ids'), list) or any(not isinstance(x, str) for x in data['ids']):
                         raise ValueError('Choose a list of job IDs')
@@ -280,6 +447,44 @@ def handler_class(app):
                 parts = path.split("/")
                 if len(parts) in (4, 5) and parts[2] == "jobs":
                     jid = parts[3]
+                    if len(parts) == 5 and parts[4] == 'networking':
+                        job = app.store.job(jid)
+                        if method == 'POST':
+                            return self.send({'started': app.networking.start([job], force=True, limit=1)}, 202)
+                        return self.send(app.networking.view(job))
+                    if method == 'POST' and len(parts) == 5 and parts[4] == 'yc-details':
+                        old = app.store.job(jid)
+                        if old['source'] != 'yc':
+                            raise ValueError('This is not a YC posting')
+                        job, _, _ = yc.detail(old['url'])
+                        app.store.upsert_jobs([job])
+                        updated = app.store.job(jid)
+                        if app.store.setting('networking')['automatic']:
+                            app.networking.start([updated])
+                        return self.send(updated)
+                    if method == 'POST' and len(parts) == 5 and parts[4] == 'outreach':
+                        job = app.store.job(jid)
+                        cached = app.networking.cached(job) or {}
+                        person = next((p for p in cached.get('people', []) if p['url'] == data.get('person_url')), None)
+                        if data.get('contact_id'):
+                            contact = next((c for c in app.workspace.state()['contacts'] if c['id'] == data['contact_id'] and c['job_id'] == jid), None)
+                            if not contact:
+                                raise ValueError('Choose a saved contact linked to this job')
+                            person = {'name': contact['name']}
+                        if data.get('person_url') and not person:
+                            raise ValueError('Research this contact before drafting a message')
+                        return self.send(drafts(app.store.setting('profile'), job, person))
+                    if method == 'POST' and len(parts) == 5 and parts[4] == 'save-contact':
+                        job = app.store.job(jid)
+                        cached = app.networking.cached(job) or {}
+                        person = next((p for p in cached.get('people', []) if p['url'] == data.get('person_url')), None)
+                        if not person:
+                            raise ValueError('Choose a researched contact candidate')
+                        existing = next((p for p in app.workspace.state()['contacts'] if p['url'] == person['url'] and p['job_id'] == jid), None)
+                        if existing:
+                            return self.send(existing)
+                        return self.send(app.workspace.save_record('contacts', {'name': person['name'], 'company': job['company'],
+                            'url': person['url'], 'job_id': jid, 'notes': person['role'] + '\nSource: ' + person['source_url'] + '\n' + person['evidence'] + '\nVerify current employment before contacting.'}))
                     if method == "GET" and len(parts) == 4:
                         return self.send(app.store.job(jid))
                     if method == "POST" and len(parts) == 5 and parts[4] == "action":

@@ -2,6 +2,10 @@
 
 Research date: **25 September 2026**. This is a representative review of official product pages, repository READMEs, and ATS documentation—not an exhaustive census of all platforms or a claim that every repository was installed and audited. Marketing claims are attributed to their authors. Prices, free quotas, repositories, and supported boards change.
 
+Networking / YC follow-up: **29 September 2026**. The [public YC engineering page](https://www.ycombinator.com/jobs/role/software-engineer) and its linked location pages expose server-rendered posting records, while the page links to account creation for additional jobs. The new connector reads those public records, reports coverage, and loads full public job pages for complete requirements. It does not claim access to the entire signed-in directory. Batch recency and reported listing activity are explicit sorting signals, not a verified startup-popularity ranking.
+
+Company and people discovery uses public search snippets through the existing Firecrawl integration and professional links on public YC pages. Direct LinkedIn scraping and automated connection/message actions are excluded; see [LinkedIn's guidance](https://www.linkedin.com/help/linkedin/answer/a1341387). Public search snippets are labeled as unverified candidates, with source links and lookup dates. Outreach uses locally saved applicant evidence and remains an editable draft.
+
 ## Platforms
 
 | Platform | What its primary source offers | Free constraint / implication for this project |

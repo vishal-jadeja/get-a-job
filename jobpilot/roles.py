@@ -1,5 +1,6 @@
 """Editable, evidence-based role suggestions. No model or paid API required."""
 from .matching import contains
+from .skills import has_skill
 
 ROLE_SKILLS = {
     "Frontend Engineer": ["javascript", "typescript", "react", "vue", "angular", "css", "html", "next.js"],
@@ -41,7 +42,7 @@ def suggest_roles(profile):
                          [profile.get("headline", ""), profile.get("resume_text", "")])
     suggestions = []
     for role, skills in ROLE_SKILLS.items():
-        found = [s for s in skills if contains(evidence, s)]
+        found = [s for s in skills if has_skill(evidence, s)]
         if len(found) >= 2:
             suggestions.append({"role": role, "evidence": found, "coverage": round(100 * len(found) / len(skills))})
     return sorted(suggestions, key=lambda x: (-x["coverage"], -len(x["evidence"]), x["role"]))[:8]

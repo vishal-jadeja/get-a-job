@@ -103,6 +103,8 @@ async function interviewPrep(jid) {
  wsDialog('Prepare for your interview',`<p class="muted">${e(job.title)} at ${e(job.company)}</p><div class="prep-grid"><section><h3>Prepare your evidence</h3><ul class="detail-list">${job.match.covered_skills.slice(0,6).map(skill=>`<li>Describe a specific time you used ${e(skill)}. What did you do, and what changed?</li>`).join('')||'<li>Which project best demonstrates your fit for this role?</li>'}<li>Walk through a challenge using situation, task, action, and result.</li><li>Why this company and this role?</li></ul><h3>Questions to ask</h3><ul class="detail-list"><li>What would success look like in the first 90 days?</li><li>What are the team’s biggest challenges?</li><li>How is performance and growth supported?</li><li>What are the next steps and timeline?</li></ul></section><section><h3>Gaps to discuss honestly</h3><div class="chips">${job.match.missing_skills.map(s=>`<span class="chip missing">${e(s)}</span>`).join('')||'<p>No recognized skill gaps.</p>'}</div><p class="help">These are preparation prompts based on your saved profile, not predictions of interview questions.</p>${wsButton('Schedule interview','schedule-interview','',`data-id="${jid}"`)}</section></div><form id="prep-form" data-id="${jid}"><label>Your stories, company research, and interview notes<textarea name="prep_notes" rows="12" maxlength="20000" placeholder="Situation → Task → Action → Result\nResearch the company\nQuestions for the interviewer">${e(m.prep_notes)}</textarea></label><button class="button primary">Save preparation notes</button></form>`);
 }
 async function workspaceAction(target) {
+ if(await intelligenceAction(target))return;
+ if(await networkingAction(target))return;
  const name=target.dataset.ws,id=target.dataset.id;
  if(name==='new-variant'||name==='edit-variant')return variantForm(id||'');
  if(name==='latex')return download('jobs/'+id+'/resume.tex','resume-'+id+'.tex');
@@ -154,13 +156,16 @@ async function workspaceAction(target) {
  }
  if(name==='outreach'){
   const c=work().contacts.find(x=>x.id===id),job=state.jobs.find(j=>j.id===c.job_id);
+  if(job)return networkingAction({dataset:{ws:'network-draft',id:job.id,contact:c.id}});
   const message=`Hi ${c.name},\n\n${job?`I'm interested in the ${job.title} role at ${job.company}.`:`I'd like to learn more about opportunities${c.company?' at '+c.company:''}.`} ${state.profile.headline?`My background: ${state.profile.headline}.`:''}\n\nWould you be open to a brief conversation about the team and the hiring process?\n\nThank you,\n${state.profile.name}`;
   wsDialog('Draft outreach',`<p class="help">Review and personalize this draft before sending it in your email or messaging app.</p><label>Message<textarea id="outreach-draft" rows="13">${e(message)}</textarea></label>${wsButton('Copy draft','copy-outreach','primary')}`);return;
  }
  if(name==='copy-outreach'){await navigator.clipboard.writeText($('#outreach-draft').value);toast('Draft copied');}
 }
 async function workspaceSubmit(form, fd) {
+ if(await intelligenceSubmit(form,fd))return true;
  const data=Object.fromEntries(fd),id=form.dataset.id;
+ if(form.id==='networking-settings'){await api('networking/settings',{automatic:fd.has('automatic'),max_per_run:Number(data.max_per_run)});dirtyForm=false;await refresh();toast('Networking settings saved');return true;}
  if(form.id==='firecrawl-form'){await api('integrations/firecrawl',data);form.reset();dirtyForm=false;await refresh();toast('Firecrawl configuration updated for this server session');return true;}
  if(form.id==='web-search-form'){
   const results=$('#web-results');results.innerHTML='<p role="status">Searching public job postings…</p>';

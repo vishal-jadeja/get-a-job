@@ -1,0 +1,57 @@
+/* Local résumé import, requirement evidence, and read-only Gmail review. */
+let resumeProposal = null, resumeProposalFile = null, mailState = null, mailPoll;
+const fieldNames={name:'Full name',email:'Email',phone:'Phone',linkedin:'LinkedIn',website:'Portfolio / GitHub',skills:'Skills',technologies:'Technologies',experience:'Experience',projects:'Projects',education:'Education',certifications:'Certifications',achievements:'Achievements',languages:'Languages',resume_text:'Additional résumé text'};
+function resumeImportPanel(){return `<section class="panel"><h2>Import your résumé into your profile</h2><p class="help">Extract PDF, DOCX, or text locally, review the suggestions, then merge selected details. Scanned PDFs need OCR or pasted text.</p><label>Choose a résumé<input type="file" id="resume-profile-import" accept=".pdf,.docx,.txt,.md"></label>${state.profile.resume_file?wsButton('Extract saved résumé','resume-extract-saved','small'):''}</section>`}
+function filePayload(file){return new Promise((resolve,reject)=>{if(file.size>5*1024*1024)return reject(Error('Choose a file smaller than 5 MB'));const reader=new FileReader();reader.onload=()=>resolve({name:file.name,base64:String(reader.result).split(',')[1]});reader.onerror=()=>reject(Error('Could not read the selected file'));reader.readAsDataURL(file)})}
+async function previewResume(file=null){
+ if(dirtyForm)throw Error('Save your current profile edits before importing a résumé.');
+ toast('Extracting résumé text locally…');resumeProposalFile=file?await filePayload(file):null;
+ const data=await api('resume/preview',resumeProposalFile||{use_saved:true});resumeProposal=data;
+ const fields=Object.entries(data.fields).filter(([,v])=>Array.isArray(v)?v.length:String(v).trim());
+ wsDialog('Review résumé suggestions',`<p class="help">${e(data.filename)} · ${data.extracted_lines} text lines. Select the fields you want to merge. Existing list entries are preserved.</p><div class="section-note">${data.warnings.map(e).join('<br>')}</div><form id="resume-merge-form">${fields.map(([key,value])=>`<section class="import-field"><label class="checkbox-label"><input type="checkbox" name="selected" value="${key}" ${Array.isArray(value)||!state.profile[key]?'checked':''}>Import ${e(fieldNames[key]||key)}</label><textarea name="field_${key}" rows="${Array.isArray(value)?Math.min(8,Math.max(2,value.length)):2}">${e(Array.isArray(value)?value.join('\n'):value)}</textarea>${!Array.isArray(value)&&state.profile[key]?`<p class="help">Current value: ${e(state.profile[key])}. Importing this scalar field replaces it.</p>`:''}</section>`).join('')}${resumeProposalFile&&/\.(pdf|docx|txt)$/i.test(resumeProposalFile.name)?`<label class="checkbox-label"><input type="checkbox" name="attachment" ${state.profile.resume_file?'':'checked'}>Use this file as my default résumé attachment</label>`:''}<button class="button primary">Merge selected details</button></form><details><summary>Complete extracted text</summary><pre class="preview">${e(data.text)}</pre></details>`);
+}
+function requirementsPanel(job){
+ const groups=job.match.requirements||[],checks=job.match.eligibility_checks||[];
+ return `<section class="panel"><h2>Requirements & eligibility</h2><p class="help">Aliases are normalized. Required skills carry more weight than preferences; clear “A or B” alternatives count as one requirement. Review ambiguous wording yourself.</p><div class="table-scroll"><table><thead><tr><th>Requirement</th><th>Priority</th><th>Your evidence</th></tr></thead><tbody>${groups.map(g=>`<tr><td>${e(g.skills.join(g.operator==='any'?' or ':', '))}<details><summary>Posting context</summary><span class="help">${e(g.evidence)}</span></details></td><td>${e(titleCase(g.kind))}</td><td>${g.met?'Covered: '+e(g.covered.join(', ')):'No saved evidence'}</td></tr>`).join('')||'<tr><td colspan="3">No recognized requirements extracted.</td></tr>'}</tbody></table></div>${checks.map(c=>`<div class="section-note"><strong>${e(c.label)} · ${e(titleCase(c.status))}</strong><br>${e(c.detail)}</div>`).join('')}<p class="help">These checks explain evidence gaps. They do not establish legal eligibility or predict hiring outcomes.</p></section>`;
+}
+function mailView(){
+ const g=state.gmail||{};
+ return heading('READ-ONLY GMAIL TRACKING','Updates from your inbox.','Match application emails locally, inspect the evidence, and confirm status changes.',wsButton('Refresh','mail-refresh')+(g.connected?wsButton('Sync Gmail','gmail-sync','primary'):''))+
+ `<section class="panel"><div class="panel-heading"><div><h2>${g.connected?'Connected: '+e(g.email):'Connect Gmail'}</h2><p class="help">Reads messages matching your query. It cannot send, delete, mark read, or modify your mailbox. Email text is processed locally; only excerpts are stored for review.</p></div>${g.connected?wsButton('Disconnect locally','gmail-disconnect'):''}</div>${!g.configured?`<ol><li>In your Google Cloud project, enable Gmail API and create an OAuth client of type <strong>Desktop app</strong>.</li><li>Configure the consent screen and add your Gmail address as a test user if the app is in testing.</li><li>Download that client's JSON and choose it below. Do not paste passwords.</li></ol><label>Google Desktop OAuth client JSON<input id="gmail-client-file" type="file" accept=".json"></label><a class="button small" href="https://developers.google.com/identity/protocols/oauth2/native-app" target="_blank" rel="noopener noreferrer">Google setup documentation ↗</a>`:!g.connected?`<p class="help">Desktop client configured. Continue to Google in your browser to approve read-only mailbox access.</p>${wsButton('Connect with Google','gmail-connect','primary')}<div id="gmail-connect-link"></div>`:''}</section>
+ <section class="panel" id="mail-content"><p class="help">Loading email review queue…</p></section>`;
+}
+async function loadMail(){
+ mailState=await api('mail');state.gmail=mailState.gmail;
+ if(view!=='mail'||!$('#mail-content'))return;
+ if(dirtyForm){if($('#mail-progress'))$('#mail-progress').textContent=mailState.progress.message;return;}
+ const s=mailState.settings,events=mailState.events;
+ $('#mail-content').innerHTML=`<h2>Sync settings</h2><form id="gmail-settings"><label class="checkbox-label"><input type="checkbox" name="enabled" ${s.enabled?'checked':''}>Periodically import matching emails while JobPilot is running</label><div class="form-grid"><label>Check every · minutes<input type="number" name="interval_minutes" min="15" max="1440" value="${s.interval_minutes}"></label><label>Gmail search query<input name="query" value="${e(s.query||mailState.default_query)}" maxlength="1000"></label></div><p class="help">Up to 50 messages per sync. Imported messages are deduplicated per account. New suggestions need your review; the app does not silently update application outcomes.</p><button class="button">Save sync settings</button></form><p class="section-note" id="mail-progress">${e(mailState.progress.message)}</p><h2>Application email updates <span class="count">${events.filter(x=>x.review_status==='pending').length} pending</span></h2>${events.map(event=>`<article class="panel mail-event"><div class="panel-heading"><h3>${e(event.subject)}</h3><span class="status">${e(titleCase(event.review_status))}</span></div><p class="help">From ${e(event.sender)} · ${e(event.account)} · ${e(titleCase(event.confidence))} match</p><p class="help">Detected: ${e(titleCase(event.suggested_status))} · “${e(event.reason)}”</p><details><summary>Inspect email excerpt</summary><pre class="preview">${e(event.excerpt)}</pre></details><a class="button small" href="${e(event.url)}" target="_blank" rel="noopener noreferrer">Open original Gmail message ↗</a>${event.review_status==='pending'?`<form class="mail-review-form" data-id="${event.id}"><div class="form-grid"><label>Matching application<select name="job_id" required><option value="">Choose the correct application</option>${state.jobs.map(j=>`<option value="${j.id}" ${j.id===event.suggested_job_id?'selected':''}>${e(j.company)} — ${e(j.title)}</option>`).join('')}</select></label><label>Outcome to record<select name="status">${['submitted','interview','offer','rejected'].map(x=>`<option value="${x}" ${x===event.suggested_status?'selected':''}>${titleCase(x)}</option>`).join('')}</select></label></div><button class="button primary">Confirm this status update</button> ${wsButton('Dismiss','mail-dismiss','',`data-id="${event.id}"`)}</form>`:''}</article>`).join('')||'<p class="help">No application-email suggestions yet. Connect Gmail, then sync.</p>'}<p class="help">When an email first confirms an application, its receipt time is used as the confirmation timestamp. It is not proof of the original submit time. Archives and later stages are protected from accidental regression.</p>`;
+ if(mailState.progress.running){clearTimeout(mailPoll);mailPoll=setTimeout(()=>loadMail().catch(err=>toast(err.message,true)),2000)}
+}
+async function intelligenceAction(target){
+ const action=target.dataset.ws;
+ if(action==='resume-extract-saved'){await previewResume();return true}
+ if(action==='mail-refresh'){await refresh();await loadMail();return true}
+ if(action==='gmail-connect'){const r=await api('gmail/connect',{});$('#gmail-connect-link').innerHTML=`<p><a class="button primary" href="${e(r.url)}" target="_blank" rel="noopener noreferrer">Continue to Google consent ↗</a></p>`;return true}
+ if(action==='gmail-disconnect'){await api('gmail/disconnect',{});await refresh();return true}
+ if(action==='gmail-sync'){await api('gmail/sync',{});toast('Reading matching messages…');await loadMail();return true}
+ if(action==='mail-dismiss'){await api('mail/review',{id:target.dataset.id,action:'dismiss'});await loadMail();return true}
+ return false;
+}
+async function intelligenceSubmit(form,fd){
+ if(form.id==='resume-merge-form'){
+  const selected=fd.getAll('selected');if(!selected.length)throw Error('Select at least one field to import');const fields={};
+  for(const key of selected){const value=fd.get('field_'+key);fields[key]=Array.isArray(resumeProposal.fields[key])?lines(value):value}
+  await api('resume/merge',{fields});if(fd.has('attachment')&&resumeProposalFile)await api('resume',resumeProposalFile);
+  dirtyForm=false;$('#workspace-dialog').close();resumeProposal=null;resumeProposalFile=null;await refresh();toast('Reviewed résumé details merged into your profile.');return true;
+ }
+ if(form.id==='gmail-settings'){await api('gmail/settings',{enabled:fd.has('enabled'),interval_minutes:Number(fd.get('interval_minutes')),query:fd.get('query')});dirtyForm=false;toast('Gmail sync settings saved');return true}
+ if(form.matches('.mail-review-form')){await api('mail/review',{id:form.dataset.id,action:'accept',job_id:fd.get('job_id'),status:fd.get('status')});dirtyForm=false;await refresh(false);await loadMail();toast('Reviewed email update recorded in the application history.');return true}
+ return false;
+}
+document.addEventListener('change',async event=>{
+ try{
+  if(event.target.id==='resume-profile-import'&&event.target.files[0])await previewResume(event.target.files[0]);
+  if(event.target.id==='gmail-client-file'&&event.target.files[0]){const file=event.target.files[0];if(file.size>20000)throw Error('Choose the downloaded OAuth client JSON, not another data export');await api('gmail/configure',JSON.parse(await file.text()));dirtyForm=false;await refresh();toast('Google Desktop client configured. Connect your account next.');}
+ }catch(err){toast(err.message,true)}
+});

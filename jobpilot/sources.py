@@ -12,7 +12,7 @@ from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from urllib.request import Request, build_opener, HTTPRedirectHandler, HTTPSHandler
 
 MAX_RESPONSE = 16 * 1024 * 1024
-KINDS = {"greenhouse", "lever", "lever_eu", "ashby"}
+KINDS = {"greenhouse", "lever", "lever_eu", "ashby", "yc"}
 
 
 class TextParser(HTMLParser):
@@ -94,7 +94,9 @@ def fetch_json(url):
 
 def validate_source(source):
     if source.get("kind") not in KINDS:
-        raise ValueError("Choose Greenhouse, Lever, Lever EU, or Ashby")
+        raise ValueError("Choose Greenhouse, Lever, Lever EU, Ashby, or YC")
+    if source.get('kind') == 'yc' and source.get('board') != 'engineering':
+        raise ValueError('The YC source uses the engineering board')
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", source.get("board", "")):
         raise ValueError("Board name must be a slug, such as stripe; not a URL")
     return {"kind": source["kind"], "board": source["board"],
@@ -134,6 +136,9 @@ def normalize(kind, board, company, data):
 def discover(source, fetch=fetch_json):
     s = validate_source(source)
     kind, board = s["kind"], s["board"]
+    if kind == 'yc':
+        from .yc import discover as discover_yc
+        return discover_yc()['jobs']
     if kind == "greenhouse":
         url = f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs?content=true"
     elif kind == "ashby":

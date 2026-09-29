@@ -19,7 +19,9 @@ class HTTPTests(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp=tempfile.TemporaryDirectory()
         cls.store=Store(cls.tmp.name)
-        cls.server=ThreadingHTTPServer(('127.0.0.1',0),handler_class(App(cls.store)))
+        cls.store.set_setting('networking', {'automatic': False, 'max_per_run': 5})
+        cls.app = App(cls.store)
+        cls.server=ThreadingHTTPServer(('127.0.0.1',0),handler_class(cls.app))
         cls.thread=threading.Thread(target=cls.server.serve_forever,daemon=True)
         cls.thread.start()
         cls.base=f'http://127.0.0.1:{cls.server.server_port}'
@@ -42,6 +44,43 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request('/api/state',headers={'Authorization':''})[0],401)
         self.assertEqual(self.request('/api/state',headers={'Origin':'https://evil.example'})[0],401)
         self.assertEqual(self.request('/api/state',headers={'Host':'evil.example'})[0],403)
+
+    def test_networking_candidates_drafts_and_contact_save(self):
+        self.store.save_profile(PROFILE)
+        job = {**JOB, 'url': 'https://jobs.example/networking', 'external_id': 'networking-fixture'}
+        self.store.upsert_jobs([job])
+        job = next(j for j in self.store.jobs() if j['url'] == 'https://jobs.example/networking')
+        results = [{'url': 'https://www.linkedin.com/in/jane-networking-fixture',
+                    'title': 'Jane Example - Software Engineer at Example Co', 'description': 'Public engineering profile at Example Co'}]
+        with patch.object(self.app.networking, 'search', return_value=results):
+            self.app.networking.lookup(job)
+        code, body, _ = self.request(f"/api/jobs/{job['id']}/networking")
+        self.assertEqual(code, 200)
+        data = json.loads(body)
+        self.assertEqual(data['people'][0]['name'], 'Jane Example')
+        payload = {'person_url': data['people'][0]['url']}
+        code, body, _ = self.request(f"/api/jobs/{job['id']}/outreach", payload)
+        self.assertEqual(code, 200)
+        self.assertIn('Python', json.loads(body)['message'])
+        first = json.loads(self.request(f"/api/jobs/{job['id']}/save-contact", payload)[1])
+        second = json.loads(self.request(f"/api/jobs/{job['id']}/save-contact", payload)[1])
+        self.assertEqual(first['id'], second['id'])
+        self.assertEqual(first['job_id'], job['id'])
+        self.assertEqual(self.request(f"/api/jobs/{job['id']}/outreach", {'person_url': 'https://linkedin.com/in/unknown'})[0], 400)
+        self.assertEqual(self.request('/api/networking/settings', {'automatic': False, 'max_per_run': 21})[0], 400)
+
+    def test_yc_full_posting_route_retains_job_identity(self):
+        from test_yc import ROW
+        from jobpilot import yc
+        job = yc.normalize(ROW)
+        self.store.upsert_jobs([job])
+        saved = next(j for j in self.store.jobs() if j['url'] == job['url'])
+        full = {**job, 'description': 'Complete Python and SQL requirements', 'description_partial': False}
+        with patch('jobpilot.server.yc.detail', return_value=(full, {}, [])):
+            code, body, _ = self.request(f"/api/jobs/{saved['id']}/yc-details", {})
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(body)['id'], saved['id'])
+        self.assertFalse(json.loads(body)['description_partial'])
 
     def test_full_review_and_submission_recording_workflow(self):
         self.assertEqual(self.request('/api/profile',PROFILE)[0],200)

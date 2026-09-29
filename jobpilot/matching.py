@@ -1,6 +1,8 @@
 """Transparent heuristics, not a prediction of hiring probability."""
 import re
 from datetime import datetime, timezone
+from .skills import extract_skills, canonical, has_skill
+from .requirements import analyze, title_words, location_match
 
 
 def contains(text, phrase):
@@ -17,19 +19,21 @@ def match(job, profile):
     reasons, blockers, warnings = [], [], []
     roles = profile.get("roles", [])
     skills = profile.get("skills", [])
-    matched = [s for s in skills if contains(text, s)]
-    from .roles import ROLE_SKILLS
-    vocabulary = sorted(set(s for group in ROLE_SKILLS.values() for s in group) | set(s.lower() for s in skills))
-    mentioned = [s for s in vocabulary if contains(text, s)]
+    matched = [s for s in skills if has_skill(text, s)]
+    mentioned = extract_skills(text, skills)
     evidence_text = "\n".join(skills + profile.get("experience", []) + profile.get("projects", []) + [profile.get("resume_text", "")])
-    covered = [s for s in mentioned if contains(evidence_text, s)]
+    explicit = {canonical(s) for s in skills}
+    covered = [s for s in mentioned if s in explicit or has_skill(evidence_text, s)]
+    requirements = analyze(job, profile)
     qualification = round(100 * len(covered) / len(mentioned)) if mentioned else None
     if not roles or not skills:
         warnings.append("Add target roles and skills to get a useful match score.")
-    role_score = max((len(tokens(r) & tokens(title)) / max(1, len(tokens(r))) for r in roles), default=0)
-    score = round(45 * role_score + 40 * len(covered) / max(1, len(mentioned)))
+    role_score = max((len(title_words(r) & title_words(title)) / max(1, len(title_words(r))) for r in roles), default=0)
+    score = round(45 * role_score + 40 * requirements['weighted_coverage'])
     reasons.append(f"Title overlap: {round(100 * role_score)}%")
     reasons.append(f"Evidence for {len(covered)} of {len(mentioned)} recognized skills in this posting")
+    reasons.append(f"Weighted requirement coverage: {round(requirements['weighted_coverage']*100)}% (required 3×, general 2×, preferred 1×)")
+    warnings.extend(requirements['warnings'])
     for company in profile.get("excluded_companies", []):
         if contains(job["company"], company):
             blockers.append("Excluded company: " + company)
@@ -43,7 +47,7 @@ def match(job, profile):
     location = job.get("location", "")
     if locations:
         # Remote does not imply worldwide eligibility. Only match the advertised location.
-        if any(contains(location, loc) for loc in locations):
+        if any(location_match(location, loc) for loc in locations):
             score += 10
             reasons.append("Advertised location matches a preference")
         else:
@@ -53,10 +57,15 @@ def match(job, profile):
     if "remote" in location.lower() or job.get("remote"):
         warnings.append("Remote roles may restrict countries or time zones; check the posting.")
     years = profile.get("years_experience")
-    required_years = [int(n) for n in re.findall(r"\b(\d{1,2})\+?\s+years?\s+(?:of\s+)?(?:relevant\s+|professional\s+)?experience", body, re.I)]
-    if years is not None and required_years and max(required_years) > years:
-        warnings.append(f"Posting mentions {max(required_years)} years of experience; profile has {years}.")
+    required_years = requirements['required_years']
+    if years is not None and required_years is not None and required_years > years:
+        warnings.append(f"Posting mentions {required_years} years of experience; profile has {years}.")
         score = max(0, score - 10)
+    for check in requirements['eligibility_checks']:
+        if check['status'] == 'gap':
+            warnings.append(check['detail'])
+            if check['label'] == 'Sponsorship':
+                blockers.append('You need sponsorship, but the posting explicitly says it is unavailable')
     posted = job.get("posted_at", "")
     if posted:
         try:
@@ -73,8 +82,13 @@ def match(job, profile):
         warnings.append("Publication date unavailable")
     if not body.strip():
         warnings.append("No job description available")
+    if job.get('description_partial'):
+        blockers.append('Load the complete YC posting before assessing fit or preparing an application')
+        qualification = None
+        warnings.append('Only listing-summary skills are available; the match score is provisional')
     return {"score": min(score, 100), "eligible": not blockers, "reasons": reasons,
             "blockers": blockers, "warnings": warnings, "matched_skills": matched,
             "qualification_percent": qualification, "covered_skills": covered,
+            "requirements": requirements['groups'], "eligibility_checks": requirements['eligibility_checks'],
             "missing_skills": [s for s in mentioned if s not in covered],
             "unmentioned_skills": [s for s in skills if s not in matched]}

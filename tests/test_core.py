@@ -28,7 +28,7 @@ class MatchingTests(unittest.TestCase):
         result = match(JOB, PROFILE)
         self.assertEqual(result["qualification_percent"], 75)
         self.assertEqual(result["missing_skills"], ["kubernetes"])
-        self.assertEqual(result["score"], 85)
+        self.assertEqual(result["score"], 80)
 
     def test_remote_does_not_override_geography(self):
         result = match({**JOB, "location": "Remote — United States", "remote": True}, PROFILE)
