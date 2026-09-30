@@ -1,4 +1,35 @@
-# Verification checkpoint — 2026-09-29
+# Verification checkpoint — 2026-09-30
+
+## Résumé import, requirement matching, and Gmail
+
+- Current suite: 108 Python tests run (107 passed, optional PDF compilation test
+  skipped) and 23 Node helper tests passed. The targeted HTTP checks include
+  alias-deduplicating résumé merges and authenticated Gmail review endpoints.
+- Added local PDF/DOCX/TXT/Markdown extraction with editable field selection and
+  non-destructive merging. PDF extraction is bounded and uses Poppler or optional
+  pypdf; DOCX XML/ZIP extraction rejects external entities and oversized content.
+- Imported the user-provided PDF into the local profile after inspecting both
+  pages and the extracted text. Recognized 33 skills, six experience bullets, and
+  five project bullets. Role/project context stays attached to bullets. Corrected
+  two link-icon extraction artifacts by comparing the source rendering. The
+  source file was not modified; its bytes are retained as the default attachment.
+- Matching now handles common aliases, required/preferred/general weighting,
+  simple alternatives, explicit sponsorship conflicts, and experience ranges.
+  Regression tests cover React.js not implying a separate JS claim, negated skills,
+  “Strong plus”/“Nice-to-haves,” and “up to” experience not being a minimum.
+- Gmail Desktop OAuth uses PKCE, state validation, loopback redirect, and the
+  read-only scope. Tests cover denial/expiry/replay, refresh/persistence, credential
+  exclusion from backups, bounded retrieval, and attachment exclusion.
+- Local email classification creates reviewable suggestions. Tests cover ambiguous
+  jobs, duplicates, quoted old replies, marketing messages, manual acceptance,
+  archived jobs, and protection against regressing later application stages.
+- Browser fixture QA: saved-résumé extraction, review and merge, Gmail setup page,
+  confirmation-email acceptance, and interview-email acceptance succeeded.
+- Screenshot: `output/qa/gmail-review.png` (fictional applicant/email data).
+- Prepared Respan’s Software Engineer, AI role for review using the supplied résumé
+  and full public job description. It remains Prepared, not Approved or Submitted.
+- Live Gmail sign-in is pending the user's Desktop OAuth client configuration and
+  consent. No real mailbox was accessed, and no employer application was submitted.
 
 ## Networking and YC discovery
 
@@ -96,7 +127,9 @@
   keyless attempts returned HTTP 403.
 - The updated extension has not been installed and exercised against live
   employer forms in this run. No real applications have been submitted.
-- No mailbox sync, public multi-user hosting, or recruiter-message sending.
+- Gmail sync is implemented and fixture-tested; real account verification still
+  requires the user's Desktop OAuth client and consent. Public multi-user hosting
+  and recruiter-message sending are not implemented.
 
 ## Reproduce
 

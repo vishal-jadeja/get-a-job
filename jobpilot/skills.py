@@ -38,7 +38,8 @@ def canonical(value):
 @lru_cache(maxsize=2048)
 def pattern(skill):
     options = ALIASES.get(skill, [skill])
-    return re.compile(r'(?<![\w])(?:' + '|'.join(re.escape(x) for x in sorted(options, key=len, reverse=True)) + r')(?![\w])', re.I)
+    # A framework suffix such as React.js must not imply a separate JS claim.
+    return re.compile(r'(?<![\w.])(?:' + '|'.join(re.escape(x) for x in sorted(options, key=len, reverse=True)) + r')(?![\w])', re.I)
 
 
 def has_skill(text, skill):
@@ -47,7 +48,9 @@ def has_skill(text, skill):
         return bool(pattern(skill).search(text) or re.search(r'\bGo\b', text) or re.search(r'\b(?:using|in|with) go\b', text, re.I))
     if skill == 'r':
         return bool(re.search(r'(?<!\w)R(?![\w&])', text) or re.search(r'\br programming\b', text, re.I))
-    return bool(pattern(skill).search(text))
+    return any(not re.search(r'(?:without|not using|never used|no (?:experience|knowledge|exposure)(?: with| of| in)?)\s*$',
+                             text[max(0, found.start()-70):found.start()], re.I)
+               for found in pattern(skill).finditer(text))
 
 
 def vocabulary(extras=()):

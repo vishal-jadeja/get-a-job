@@ -31,6 +31,7 @@ Keep the server running for scheduled discovery. Each data directory is a separa
 5. In **Discover jobs**, select jobs and prepare them in batches. Open a job to review its fit, missing skill evidence, résumé draft, cover letter, and source posting. Download its ZIP; `resume.html` can be printed to PDF from your browser.
 6. Approve reviewed applications individually or in a selected batch. Under **Applications**, select approved jobs and click **Queue selected**. Connect the browser helper from **Automation** and run that queue.
 7. Track results under **Applications**. Record manual submission confirmations, interviews, offers, or rejections. **Analytics** shows confirmed volume, lifetime response/interview rates, weekly submissions, source performance, and the event log. Recorded outcomes remain counted after rejection or archiving; the pipeline separately shows current stages.
+8. Optionally connect Gmail under **Email updates**. Sync matching emails, review their proposed application/outcome matches, and confirm the updates to your tracker.
 
 Changes to a profile, résumé, or posting invalidate pending materials and approvals. Submitted applications retain their history. The helper claims each approved record atomically to prevent concurrent duplicate attempts.
 
@@ -45,6 +46,29 @@ Changes to a profile, résumé, or posting invalidate pending materials and appr
 - **Interview prep:** prompts grounded in recognized skills, skill gaps, questions to ask, and persistent preparation notes.
 
 ## Different résumés for different roles
+
+### Import career evidence from a résumé
+
+Under **Career profile → Import your résumé into your profile**, choose a PDF,
+DOCX, TXT, or Markdown file, or extract the saved default attachment. Extraction
+runs locally. Review the proposed fields and complete extracted text, edit any
+mistakes, select the fields to merge, and click **Merge selected details**.
+
+List fields preserve existing entries; skill aliases are deduplicated. Existing
+contact fields are unselected by default so they are not silently overwritten.
+Wrapped PDF bullets are joined, and adjacent role/project headers remain attached
+when those bullets are ranked for applications. Unknown extra context is retained
+as additional résumé text. Years of experience, legal name parts, work authorization,
+and location eligibility are not guessed. A selected file becomes the default
+attachment only when that option is checked.
+
+PDF extraction uses installed `pdftotext` (Poppler), or optional `pypdf` in a
+separate process with a timeout. If neither is installed, install one or paste text.
+DOCX/TXT/Markdown extraction uses the standard library. Files are limited to 5 MB;
+PDF extraction reads at most 30 pages. Image-only/scanned PDFs need OCR first.
+Columns and unusual section headings still require review.
+
+### Tailor by role and posting
 
 1. Save your complete career evidence in **Career profile**.
 2. Under **Role-focused résumés**, create profiles such as Backend Engineering and Frontend Engineering. Enter target job titles, a truthful headline, relevant skills, experience, and projects, and limits for each section.
@@ -80,13 +104,69 @@ If a click is sent but no recognizable confirmation appears, the status becomes 
 
 ## Match percentages
 
-**Overall match, 0–100:** up to 45 points for target-title word overlap, 40 for evidence covering recognized skill mentions, 10 for an advertised location match, and 5 for a verified publication in the last seven days. A detected experience shortfall subtracts 10 points.
+**Overall match, 0–100:** up to 45 points for normalized target-title overlap,
+40 for weighted requirement coverage, 10 for an advertised location match, and
+5 for a verified publication in the last seven days. A detected experience
+shortfall subtracts 10 points. Required skill groups weigh 3, general mentions 2,
+and preferred skills 1. Clear “A or B” lists count as one alternative requirement.
+
+The matcher normalizes common aliases such as Postgres/PostgreSQL, ReactJS/React,
+K8s/Kubernetes, and AWS/Amazon Web Services. It distinguishes headings such as
+“Must-haves” and “Strong plus,” and does not turn “up to two years” into a minimum.
+The requirement table shows the source wording behind each result. These remain
+heuristics: mixed AND/OR requirements and unfamiliar phrasing need review.
+
+Experience, seniority, education, and work-authorization language produce explicit
+checks. If you state that you need sponsorship and a posting explicitly says it
+is unavailable, that conflict blocks approval. The app does not establish legal
+eligibility or answer country-specific authorization questions automatically.
 
 **Skill coverage:** recognized skills in the posting supported by your profile ÷ all recognized skills in the posting. Skills come from the role catalog and your own skills. Missing evidence is displayed separately. Optional skill mentions may be included; this does not parse every requirement.
 
 Neither percentage is a probability of hiring, an employer's ATS score, or a complete measure of eligibility. Work authorization, geography, required credentials, nuanced experience, and unrecognized requirements need review. Remote does not imply worldwide eligibility. Unknown publication dates are shown as unknown; Greenhouse's update timestamp is not treated as publication.
 
-The rule-based matcher is deliberately inspectable and free. It does not understand all synonyms, infer a complete career path, or replace a recruiter. Edit `jobpilot/roles.py` to extend role families and reference skills.
+The rule-based matcher is deliberately inspectable and free. It does not understand all synonyms, infer a complete career path, or replace a recruiter. Edit `jobpilot/roles.py` and `jobpilot/skills.py` to extend role families, reference skills, and aliases.
+
+## Read-only Gmail tracking
+
+1. In your own Google Cloud project, enable **Gmail API**, configure the OAuth
+   consent screen, and create an OAuth client of type **Desktop app**. If the app
+   is in testing, add your Gmail address as a test user.
+2. Download the OAuth client JSON. In **Email updates**, choose that file.
+3. Click **Connect with Google**, then **Continue to Google consent**. Approve
+   the read-only scope yourself in your browser. The loopback callback returns
+   you to JobPilot; refresh Email updates if needed.
+4. Click **Sync Gmail**, or enable periodic sync while the server is running.
+   The default query looks for application/interview messages from the last 90 days.
+   Adjust the query to a particular company or period when needed.
+5. Inspect the original email or local excerpt, select the correct job and outcome,
+   then confirm the update. Duplicate emails do not duplicate tracker events;
+   ambiguous matches are not automatically assigned. Dismiss irrelevant results.
+
+The connector uses Google's [Desktop OAuth flow with PKCE](https://developers.google.com/identity/protocols/oauth2/native-app)
+and only the `gmail.readonly` scope. It does not send mail, mark messages read,
+delete mail, download attachments, or modify the mailbox. Classification happens
+locally; no email content is sent to Firecrawl or an AI provider.
+
+Each sync retrieves up to 50 matching messages. The review screen shows up to 200
+recent suggestions. For a larger backlog, narrow the Gmail query by date/company
+to import it in batches. Scheduled sync defaults to off and supports 15–1440 minute
+intervals. Suggestions always require review; there are no silent outcome changes.
+Archived/running applications and later stages are protected from accidental
+regression. If an email is the first evidence of submission, its receipt time is
+recorded as the confirmation time, not a verified submit-click time.
+
+OAuth client configuration and refresh tokens are stored in the private local
+`data/gmail-credentials.json` file with owner-only permissions on POSIX systems.
+They are excluded from the app's backup ZIP and JSON exports. Email excerpts and
+review history are in SQLite and included in a full backup. **Disconnect locally**
+removes the refresh token; you can additionally revoke access in Google Account
+settings. After restoring a backup, reconnect Gmail. A testing OAuth app or revoked
+grant may require reconnection.
+
+Live Gmail access cannot be verified until you configure your OAuth client and
+complete consent. Automated tests exercise simulated Google responses and local
+email-review flows; they do not access a real mailbox.
 
 ## Expand discovery
 
@@ -156,7 +236,8 @@ The helper also has **Preview current posting**, using user-triggered `activeTab
 - Your résumé and profile fields leave your computer only when the helper fills an employer's application page. A website can observe field input before submission.
 - Export JSON from the header for profile/jobs/events/planning data, or CSV from Applications/Analytics with tracking details. JSON is an export, not a complete backup; it excludes tokens, attachment binaries, and historical material revisions.
 - **Automation → Download full backup** makes a consistent SQLite snapshot including résumé variants, planning records, and draft history, plus the default attachment. It removes the connection token. Stop the server, extract the ZIP into a **new private folder**, then start with `python -m jobpilot --data "path/to/folder"`. Reconnect the helper with the new token. Restore instructions are inside the ZIP. Alternatively, stop the server and copy the whole data folder. Data and backups are not encrypted at rest.
-- This version has no mailbox integration. Interview/offer/rejection outcomes require manual updates.
+- Gmail can import outcome suggestions into a review queue. Other mailbox providers
+  are not integrated; Gmail suggestions and manually entered outcomes require review.
 
 ## Tests
 

@@ -34,6 +34,11 @@ def main():
         yc_job = normalize({**ROW, 'companyName': 'YC Example (fictional fixture)'})
         store.upsert_jobs([yc_job])
         app.record_yc({'jobs': [yc_job], 'pages': 1, 'errors': [], 'coverage': 'Fictional UI fixture'})
+        from test_gmail import message
+        app.mail.ingest('fixture@example.com', [message('ui-receipt'), message('ui-interview',
+            text='We invite you to an interview for Software Engineer at Example Co.')])
+        from test_import_matching import TEXT
+        store.save_resume('fixture-resume.txt', base64.b64encode(TEXT.encode()).decode())
         app.workspace.save_resume('backend-resume.txt', base64.b64encode(b'Example Candidate - Python and SQL services').decode())
         jobs = store.jobs()
         app.workspace.save_metadata(jobs[0]['id'], {'favorite': True, 'priority': 'high', 'tags': ['Remote'], 'deadline': '2026-10-05'})

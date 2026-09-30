@@ -34,7 +34,7 @@ class ResumeImportTests(unittest.TestCase):
         self.assertEqual(fields['email'], 'example@example.com')
         self.assertEqual(fields['phone'], '+91 9876543210')
         self.assertEqual(fields['website'], 'https://github.com/example')
-        self.assertIn('- Built Python services with automated SQL reports.', fields['experience'])
+        self.assertIn('Developer | Example Co | 2022–2025 — Built Python services with automated SQL reports.', fields['experience'])
         self.assertIn('postgresql', fields['skills'])
         self.assertNotIn('years_experience', fields)
         self.assertIn('Amazon Web Services', fields['resume_text'])
@@ -99,6 +99,20 @@ class ImprovedMatchingTests(unittest.TestCase):
     def test_common_go_word_is_not_a_programming_claim(self):
         self.assertNotIn('go', extract_skills('We go above and beyond.'))
         self.assertIn('go', extract_skills('Golang services'))
+
+    def test_nice_to_haves_and_strong_plus_are_not_required(self):
+        result = analyze({**JOB,'description':'Must-haves\nPython\nStrong plus:\nMachine learning or MLOps\nNice-to-haves\nKubernetes'}, PROFILE)
+        self.assertTrue(all(g['kind']=='preferred' for g in result['groups'] if 'python' not in g['skills']))
+
+    def test_up_to_experience_is_not_a_minimum(self):
+        result = analyze({**JOB,'description':'Fresh graduate or up to 2 years of software-development experience'}, PROFILE)
+        self.assertIsNone(result['required_years'])
+        self.assertEqual(result['experience_requirements'][0]['bound'],'maximum')
+
+    def test_explicitly_negated_skills_are_not_imported(self):
+        self.assertNotIn('kubernetes',extract_skills('Built Docker services without Kubernetes.'))
+        self.assertNotIn('java',extract_skills('No experience with Java.'))
+        self.assertIn('java',extract_skills('No experience with Java in 2020. Later built Java services.'))
 
 
 if __name__ == '__main__':

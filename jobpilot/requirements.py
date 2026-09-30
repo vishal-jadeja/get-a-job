@@ -3,7 +3,7 @@ import re
 from .skills import canonical, extract_skills, has_skill
 
 REQUIRED = re.compile(r'\b(required|requirements|must|minimum|essential|need to have)\b', re.I)
-PREFERRED = re.compile(r'\b(preferred|nice.to.have|bonus|optional|useful|desirable|a plus)\b', re.I)
+PREFERRED = re.compile(r'\b(preferred|nice.to.haves?|bonus|optional|useful|desirable|(?:a|strong) plus)\b', re.I)
 COUNTRIES = {'us': ['united states', 'usa', 'u.s.', 'us'], 'uk': ['united kingdom', 'uk', 'u.k.'],
              'india': ['india', 'in'], 'canada': ['canada', 'ca'], 'germany': ['germany', 'de'],
              'australia': ['australia', 'au'], 'singapore': ['singapore', 'sg']}
@@ -43,7 +43,7 @@ def analyze(job, profile):
         cleaned = re.sub(r'^[#*\-\s]+|[:\s]+$', '', line).strip()
         if len(cleaned) < 90 and (REQUIRED.search(cleaned) or PREFERRED.search(cleaned)) and not extract_skills(cleaned):
             section = 'preferred' if PREFERRED.search(cleaned) else 'required'
-        elif len(cleaned) < 50 and re.search(r'^(responsibilities|benefits|about us|what we offer|the company)', cleaned, re.I):
+        elif len(cleaned) < 60 and re.search(r'^(responsibilities|benefits|about us|about the role|what we offer|what you.ll do|the company)', cleaned, re.I):
             section = 'mentioned'
         for sentence in re.split(r'(?<=[.!?])\s+(?=[A-Z])|;', cleaned):
             kind = 'preferred' if PREFERRED.search(sentence) else 'required' if REQUIRED.search(sentence) else section
@@ -57,7 +57,8 @@ def analyze(job, profile):
                                'covered': covered, 'met': bool(covered), 'evidence': sentence[:500]})
             experience = re.search(r'\b(\d{1,2})(?:\s*[-–]\s*\d{1,2})?\+?\s+years?\s+(?:of\s+)?(?:[\w/-]+\s+){0,4}experience\b', sentence, re.I)
             if experience:
-                years.append({'years': int(experience[1]), 'kind': kind, 'evidence': sentence[:500]})
+                bound = 'maximum' if re.search(r'\b(up to|at most|no more than|maximum)\b', sentence[:experience.start()], re.I) else 'minimum'
+                years.append({'years': int(experience[1]), 'kind': kind, 'bound': bound, 'evidence': sentence[:500]})
     # Repeated boilerplate must not multiply a requirement's weight.
     unique = {}
     rank = {'required': 3, 'mentioned': 2, 'preferred': 1}
@@ -69,12 +70,16 @@ def analyze(job, profile):
     total = sum(rank[g['kind']] for g in groups)
     weighted = sum(rank[g['kind']] for g in groups if g['met']) / total if total else 0
     missing_required = [g for g in groups if g['kind'] == 'required' and not g['met']]
-    required_years = max((x['years'] for x in years if x['kind'] != 'preferred'), default=None)
+    required_years = max((x['years'] for x in years if x['kind'] != 'preferred' and x['bound'] == 'minimum'), default=None)
     checks, warnings = [], []
     if required_years is not None:
         actual = profile.get('years_experience')
         checks.append({'label': 'Experience', 'status': 'unknown' if actual is None else 'met' if actual >= required_years else 'gap',
                        'detail': f'Posting mentions at least {required_years} years; profile: {actual if actual is not None else "not specified"}. Review whether this is total or skill-specific experience.'})
+    for requirement in years:
+        if requirement['bound'] == 'maximum':
+            checks.append({'label': 'Experience range', 'status': 'review',
+                           'detail': f"Posting says up to {requirement['years']} years, not a minimum: {requirement['evidence']}"})
     if re.search(r'\b(senior|staff|principal|lead|head|director)\b', job['title'], re.I):
         checks.append({'label': 'Seniority', 'status': 'review', 'detail': 'Senior/leadership title: review scope and responsibilities, not just years.'})
     if re.search(r'\b(?:no (?:visa )?sponsorship|(?:cannot|unable to|do not|does not) (?:provide |offer )?(?:visa )?sponsor(?:ship)?)\b', text, re.I):

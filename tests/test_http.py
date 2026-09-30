@@ -45,6 +45,40 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request('/api/state',headers={'Origin':'https://evil.example'})[0],401)
         self.assertEqual(self.request('/api/state',headers={'Host':'evil.example'})[0],403)
 
+    def test_zz_resume_preview_and_reviewed_merge(self):
+        from test_import_matching import TEXT
+        self.store.save_profile(PROFILE)
+        code, body, _ = self.request('/api/resume/preview', {'name':'resume.txt','base64':base64.b64encode(TEXT.encode()).decode()})
+        self.assertEqual(code, 200)
+        self.assertEqual(self.store.setting('profile')['name'], PROFILE['name'])
+        fields = json.loads(body)['fields']
+        code, body, _ = self.request('/api/resume/merge', {'fields':{'skills':fields['skills'], 'projects':fields['projects']}})
+        self.assertEqual(code, 200)
+        self.assertIn(PROFILE['projects'][0], json.loads(body)['profile']['projects'])
+        from jobpilot.skills import canonical
+        merged = json.loads(body)['profile']['skills']
+        self.assertEqual(len(merged), len({canonical(s) for s in merged}))
+        self.assertEqual(self.request('/api/resume/merge', {'fields':{'needs_sponsorship':'yes'}})[0], 400)
+
+    def test_zz_gmail_configuration_and_email_review_endpoints(self):
+        from test_gmail import CLIENT, message
+        self.store.save_profile(PROFILE)
+        self.assertEqual(self.request('/api/gmail/configure',CLIENT,headers={'Authorization':''})[0], 401)
+        self.assertEqual(self.request('/api/gmail/configure',CLIENT)[0], 200)
+        code, body, _ = self.request('/api/gmail/connect',{})
+        self.assertEqual(code, 200)
+        self.assertIn('gmail.readonly', json.loads(body)['url'])
+        self.assertNotIn('fixture-client-secret', self.request('/api/state')[1].decode())
+        self.assertEqual(self.request('/api/gmail/sync',{})[0], 400)
+        job = {**JOB,'url':'https://jobs.example/mail-api','external_id':'mail-api','company':'Mail Example'}
+        self.store.upsert_jobs([job]); saved=next(j for j in self.store.jobs() if j['external_id']=='mail-api')
+        self.app.mail.ingest('fixture@example.com',[message('api-mail',subject='Software Engineer at Mail Example',text='Thank you for applying for Software Engineer at Mail Example.')])
+        event=json.loads(self.request('/api/mail')[1])['events'][0]
+        self.assertEqual(self.request('/api/mail/review',{'id':event['id'],'action':'accept','job_id':saved['id'],'status':'submitted'})[0],200)
+        self.assertEqual(self.store.job(saved['id'])['status'],'submitted')
+        self.assertEqual(self.request('/api/mail/review',{'id':event['id'],'action':'dismiss'})[0],400)
+        self.assertEqual(self.request('/api/gmail/disconnect',{})[0],200)
+
     def test_networking_candidates_drafts_and_contact_save(self):
         self.store.save_profile(PROFILE)
         job = {**JOB, 'url': 'https://jobs.example/networking', 'external_id': 'networking-fixture'}

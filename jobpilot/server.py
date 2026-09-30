@@ -292,7 +292,15 @@ def handler_class(app):
                         if isinstance(profile.get(key), list):
                             if not isinstance(value, list) or any(not isinstance(x, str) for x in value):
                                 raise ValueError('List fields must contain text entries')
-                            profile[key] = list(dict.fromkeys(profile[key]+value))
+                            if key in ('skills', 'technologies'):
+                                from .skills import canonical
+                                seen = {canonical(v) for v in profile[key]}
+                                for item in value:
+                                    if canonical(item) not in seen:
+                                        profile[key].append(item)
+                                        seen.add(canonical(item))
+                            else:
+                                profile[key] = list(dict.fromkeys(profile[key]+value))
                         elif not isinstance(value, str):
                             raise ValueError('Use text for contact fields')
                         elif key == 'resume_text' and profile.get(key):

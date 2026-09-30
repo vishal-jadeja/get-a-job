@@ -113,6 +113,24 @@ def propose(text):
                 bullet_indent = indent if is_bullet else None
             captured.add(index)
     fields['skills'] = extract_skills(text)
+    # Keep role/project headers attached when individual bullets are later ranked.
+    # This is a verbatim combination of adjacent source lines, not a new claim.
+    for key in ('experience', 'projects'):
+        context, grouped, after_bullet = [], [], False
+        if any(re.match(r'^[-–—•*]\s+', line) for line in fields[key]):
+            for line in fields[key]:
+                if re.match(r'^[-–—•*]\s+', line):
+                    bullet = re.sub(r'^[-–—•*]\s+', '', line)
+                    grouped.append((' | '.join(context) + ' — ' if context else '') + bullet)
+                    after_bullet = True
+                else:
+                    if after_bullet:
+                        context = []
+                    context.append(line)
+                    after_bullet = False
+            if context and not after_bullet:
+                grouped.append(' | '.join(context))
+            fields[key] = grouped
     email = re.search(r'[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}', text, re.I)
     if email:
         fields['email'] = email[0]
