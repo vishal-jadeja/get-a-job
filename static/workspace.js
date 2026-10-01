@@ -85,11 +85,14 @@ function queuePanel() {
  const ids=work().queue_ids,approved=state.jobs.filter(j=>j.status==='approved'),queue=ids===null?approved:ids.map(id=>approved.find(j=>j.id===id)).filter(Boolean);
  return `<section class="panel queue-panel"><div><h2>Application queue <span class="count">${queue.length}</span></h2><p class="help">${ids===null?'All approved applications are available to the helper.':'The helper will process only this selected queue, in order.'} Review every draft before approving.</p>${queue.length?`<p class="queue-summary">${queue.slice(0,5).map(j=>e(j.company)).join(', ')}${queue.length>5?' and '+(queue.length-5)+' more':''}</p>`:''}</div><div class="heading-actions">${wsButton('Queue selected','queue','primary')}${wsButton('Clear queue','clear-queue')}<a class="button" href="#automation">Open helper setup</a></div></section>`;
 }
+function applicationResumeSelector(job) {
+ return `<section class="panel application-resume"><form id="job-resume-form" data-id="${job.id}"><h3>Résumé for this application</h3><label>Select from Résumé library<select name="resume_id" ${job.submitted_at||['in_progress','submitting','submission_unknown'].includes(job.status)?'disabled':''}><option value="" ${!job.resume_asset?'selected':''}>Profile default: ${e(state.profile.resume_file?.name||'No file uploaded')}</option>${(work().resumes||[]).map(r=>`<option value="${r.id}" ${job.resume_asset?.id===r.id?'selected':''}>${e(r.name)}</option>`).join('')}</select></label>${!job.submitted_at&&!['in_progress','submitting','submission_unknown'].includes(job.status)?'<button class="button primary">Use selected résumé</button>':''}<p class="help">Current attachment: <strong>${e(job.resume_asset?.name||state.profile.resume_file?.name||'No résumé selected')}</strong></p><p class="help">Add files under Career profile → Résumé library. Changing the attachment clears prepared materials and approval; prepare and review again before applying.</p></form></section>`;
+}
 function workspaceDetail(job) {
  const m=meta(job.id),tasks=work().tasks.filter(t=>t.job_id===job.id),canEdit=['prepared','approved','needs_review'].includes(job.status)&&job.materials;
  return `<section class="job-workspace"><div class="panel-heading"><h3>Your workspace</h3>${wsButton(m.favorite?'★ Shortlisted':'☆ Shortlist','favorite','',`data-id="${job.id}" aria-pressed="${!!m.favorite}"`)}</div>
  <form id="job-variant-form" data-id="${job.id}"><label>Résumé tailoring profile<select name="variant_id" ${job.submitted_at||['in_progress','submitting','submission_unknown','archived'].includes(job.status)?'disabled':''}><option value="" ${!job.resume_variant_id?'selected':''}>Automatically match the role</option><option value="general" ${job.resume_variant_id==='general'?'selected':''}>General career profile</option>${(work().resume_variants||[]).map(v=>`<option value="${v.id}" ${job.resume_variant_id===v.id?'selected':''}>${e(v.name)}</option>`).join('')}</select></label>${!job.submitted_at&&!['in_progress','submitting','submission_unknown','archived'].includes(job.status)?'<button class="button small">Use tailoring profile</button>':''}${job.materials?.tailoring?`<p class="help">Prepared with <strong>${e(job.materials.tailoring.variant_name)}</strong> for ${e(job.materials.tailoring.target_role)}. ${job.materials.tailoring.experience_count} experience bullets and ${job.materials.tailoring.project_count} projects, ranked against this posting.</p>`:'<p class="help">Prepare materials to create a job-specific résumé. Role profiles are managed in Career profile.</p>'}</form>
- <form id="job-resume-form" data-id="${job.id}"><label>Résumé attachment<select name="resume_id" ${job.submitted_at||['in_progress','submitting','submission_unknown'].includes(job.status)?'disabled':''}><option value="">Profile default: ${e(state.profile.resume_file?.name||'No file uploaded')}</option>${(work().resumes||[]).map(r=>`<option value="${r.id}" ${job.resume_asset?.id===r.id?'selected':''}>${e(r.name)}</option>`).join('')}</select></label>${!job.submitted_at&&!['in_progress','submitting','submission_unknown'].includes(job.status)?'<button class="button small">Use selected résumé</button>':''}<p class="help">Add variants in Career profile. Changing the attachment clears materials and approval so you can review again.</p></form>
+
  <form id="job-metadata-form" data-id="${job.id}"><div class="form-grid"><label>Priority<select name="priority">${['low','normal','high'].map(v=>`<option ${m.priority===v?'selected':''}>${v}</option>`).join('')}</select></label><label>Application deadline<input type="date" name="deadline" value="${e(m.deadline)}"></label><label>Compensation / salary range<input name="salary" maxlength="200" placeholder="e.g. ₹25–35 LPA · advertised" value="${e(m.salary)}"></label><label>Tags (comma separated)<input name="tags" value="${e(m.tags.join(', '))}" placeholder="Dream company, Remote, Referral"></label></div><button class="button">Save tracking details</button></form>
  <div class="panel-heading workspace-section"><h3>Next steps</h3>${wsButton('+ Add task','job-task','small',`data-id="${job.id}"`)}</div>${tasks.map(taskRow).join('')||'<p class="help">Set a follow-up or schedule an interview for this application.</p>'}
  <div class="heading-actions workspace-section">${canEdit?wsButton('Edit résumé & cover letter','edit-materials','primary',`data-id="${job.id}"`):''}${job.materials?wsButton('Draft history','versions','',`data-id="${job.id}"`):''}${wsButton('Interview prep','prep','',`data-id="${job.id}"`)}${job.status==='archived'?wsButton('Restore application','restore','',`data-id="${job.id}"`):(!['in_progress','submitting','submission_unknown'].includes(job.status)?wsButton('Archive','archive','',`data-id="${job.id}"`):'')}</div></section>`;
@@ -128,6 +131,11 @@ async function workspaceAction(target) {
  if(name==='layout'){pipelineLayout=target.dataset.value;render();return;}
  if(name==='calendar')return download('calendar.ics','jobpilot-planner.ics');
  if(name==='backup')return download('backup.zip','jobpilot-backup.zip');
+ if(name==='export-json')return download('export','jobpilot-export.json');
+ if(name==='restore-workspace'){
+  const result=await api('backup/restore',{restore_id:pendingRestoreId,confirm:true});
+  pendingRestoreId=null;location.reload();return;
+ }
  if(name==='goal')return wsDialog('Set your weekly goal',`<form id="goal-form"><label>Confirmed applications per week<input type="number" min="1" max="500" name="goal" value="${work().weekly_goal}" required></label><p class="help">Choose a sustainable target. Only confirmed submissions count.</p><button class="button primary">Save goal</button></form>`);
  if(name==='favorite'){await api('workspace/metadata',{job_id:id,favorite:!meta(id).favorite});await refresh(false);render();if($('#detail-dialog').open)await detail(id);return;}
  if(name==='save-search')return wsDialog('Save this search',`<form id="search-form"><label>Search name<input name="name" required maxlength="500" placeholder="e.g. Remote Python roles"></label><p class="help">Saves your current search, filters, shortlist setting, and sort order.</p><button class="button primary">Save search</button></form>`);
@@ -205,6 +213,16 @@ function firecrawlSettings() {
 document.addEventListener('change',async event=>{
  const t=event.target;
  try{
+  if(t.id==='workspace-backup-upload'&&t.files[0]){
+   const file=t.files[0];if(file.size>64*1024*1024)throw Error('Choose a backup ZIP smaller than 64 MB');
+   t.disabled=true;toast('Checking backup…');
+   try {
+    const encoded=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=reject;reader.readAsDataURL(file)});
+    const preview=await api('backup/preview',{base64:encoded});pendingRestoreId=preview.restore_id;
+    wsDialog('Review workspace import',`<p><strong>${e(preview.name||'Unnamed profile')}</strong> · ${preview.jobs} jobs · ${preview.resumes} library résumés</p><p class="help">Default résumé: ${e(preview.default_resume||'None')}</p><p>This will replace the workspace shown on this computer. Your current data is preserved in a separate workspace and a backup ZIP. The two workspaces are not merged.</p><p class="help">Reconnect Gmail and the browser helper after importing. Scheduled discovery and email sync will be off; pending approvals must be reviewed again. Submitted application history is preserved.</p>${wsButton('Restore this workspace','restore-workspace','primary')}`);
+   } finally {t.disabled=false;t.value='';}
+   return;
+  }
   if(t.id==='resume-library-upload'&&t.files[0]){
    const file=t.files[0];if(file.size>5*1024*1024)throw Error('Choose a file smaller than 5 MB');
    const encoded=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=reject;reader.readAsDataURL(file)});
@@ -238,3 +256,6 @@ document.addEventListener('DOMContentLoaded',()=>{
  $('#import-form .form-grid').insertAdjacentHTML('beforebegin','<p class="help">Paste a public job posting URL below, then preview an import with Firecrawl. You can also enter details manually.</p>');
  $('#import-form .form-grid').insertAdjacentHTML('afterend',wsButton('Import from URL with Firecrawl','extract-url')+'<p id="import-feedback" class="help" role="status"></p>');
 });
+
+let pendingRestoreId=null;
+function transferPanel(){return `<section class="panel"><h2>Export and import your workspace</h2><p class="help">Move your profile, jobs, résumé library, application history, drafts, tasks, contacts, and email review history to another computer.</p>${wsButton('Export full backup ZIP','backup','primary')}<label>Import a JobPilot backup ZIP<input id="workspace-backup-upload" type="file" accept=".zip,application/zip"></label><p class="help">Install and run the same JobPilot version on the other computer, then import the ZIP here. You’ll review the backup before restoring it. This transfers a snapshot; computers do not sync automatically. Backups contain personal data but exclude Gmail credentials and the browser connection token.</p><details><summary>Other exports</summary><p class="help">JSON is for inspecting data; use the full ZIP to move your workspace.</p>${wsButton('Export JSON','export-json')}</details></section>`;}

@@ -207,6 +207,11 @@ class Store:
                     added += 1
         return added
 
+    def import_discovered_jobs(self, jobs):
+        from .discovery_filter import relevant_engineering
+        profile = self.setting('profile')
+        return self.upsert_jobs([job for job in jobs if relevant_engineering(job, profile)])
+
     def jobs(self):
         profile = self.setting("profile")
         with self.db() as db:

@@ -1,3 +1,20 @@
+# Workspace transfer — 2026-10-01
+
+- Added **Export / import** in the header and Automation: full backup ZIP download,
+  upload preview, and explicit restore confirmation. JSON remains a separate export.
+- Restore validates the ZIP, database schema/integrity, and résumé hashes in an
+  isolated directory. It preserves the old workspace and creates a recovery ZIP.
+- The selected workspace persists across server restarts. Imports rotate helper
+  tokens, disconnect Gmail, disable scheduled discovery/email sync, clear the queue,
+  and require pending approvals to be reviewed again. Submitted history is retained.
+- Python suite: 116 tests run, 115 passed, optional PDF test skipped. Node: 23 passed.
+  Transfer tests cover HTTP preview/confirmation, busy-operation rejection, token
+  rotation, persistence, résumé bytes, tasks/contacts, submission history, path
+  traversal, unexpected schema, and damaged résumé rejection.
+- Brave fixture QA verified the header's Export / import dialog and labeled ZIP
+  controls. Full restore behavior was exercised through HTTP on disposable data.
+  The user's real workspace was not restored or replaced during validation.
+
 # Verification checkpoint — 2026-09-30
 
 ## Résumé import, requirement matching, and Gmail

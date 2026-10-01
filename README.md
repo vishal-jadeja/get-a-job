@@ -170,6 +170,8 @@ email-review flows; they do not access a real mailbox.
 
 ## Expand discovery
 
+Automatic company-board, YC, and JobSpy imports keep engineering roles aligned with your saved target titles, skill evidence, minimum match score, and profile exclusions. With experience entered, senior titles (below five years) and detected experience requirements above your profile are excluded. YC summaries are provisional until full descriptions are loaded. These filters are heuristics; review each posting. Manual imports remain available.
+
 The nine starter company boards plus YC's public engineering source are examples, not the entire job market. Add employer slugs under **Job sources**, or import arbitrary postings through **Add job**. A sample import schema is in [`examples/jobs.json`](examples/jobs.json). JSON import accepts up to 5,000 records per request.
 
 ### YC engineering startups
@@ -235,7 +237,12 @@ The helper also has **Preview current posting**, using user-triggered `activeTab
 - The local server binds only to `127.0.0.1`, validates host/origin headers, and uses a random bearer token for API requests. Keep the connection token private.
 - Your résumé and profile fields leave your computer only when the helper fills an employer's application page. A website can observe field input before submission.
 - Export JSON from the header for profile/jobs/events/planning data, or CSV from Applications/Analytics with tracking details. JSON is an export, not a complete backup; it excludes tokens, attachment binaries, and historical material revisions.
-- **Automation → Download full backup** makes a consistent SQLite snapshot including résumé variants, planning records, and draft history, plus the default attachment. It removes the connection token. Stop the server, extract the ZIP into a **new private folder**, then start with `python -m jobpilot --data "path/to/folder"`. Reconnect the helper with the new token. Restore instructions are inside the ZIP. Alternatively, stop the server and copy the whole data folder. Data and backups are not encrypted at rest.
+- **Export / import → Export full backup ZIP** saves the database, default résumé, résumé library, drafts, application history, tasks, contacts, and email review history. It excludes Gmail credentials and the browser connection token. Backups contain private information and are not encrypted.
+- To move computers, install/run the same JobPilot version on the destination, click **Export / import**, select the ZIP (up to 64 MB compressed / 256 MB expanded), review its profile and counts, then click **Restore this workspace**. Automation has the same controls. JSON/CSV exports are for inspection, not restoration.
+- Import switches to a separate restored workspace, without merging. The previous workspace remains intact and a ZIP is saved under the original data directory's `backups/`. The active folder is recorded in `active-workspace.json` and survives server restarts. Re-import the saved ZIP to switch back. Keep the original data directory and its restored subfolders together.
+- Reconnect Gmail and the browser helper after importing. Pending approvals require another review, the helper queue is empty, and scheduled discovery/email sync are disabled. Confirmed submission history remains intact. Interrupted submissions become unknown outcomes rather than being retried.
+- This is a snapshot transfer, not automatic multi-computer synchronization. A manual restore is also available: stop the server, extract the ZIP into a new private folder, and run `python -m jobpilot --data "path/to/folder"`.
+
 - Gmail can import outcome suggestions into a review queue. Other mailbox providers
   are not integrated; Gmail suggestions and manually entered outcomes require review.
 

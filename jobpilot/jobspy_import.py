@@ -17,7 +17,8 @@ def main():
         from jobspy import scrape_jobs
     except ImportError:
         parser.error("Optional dependency missing. In your virtual environment: pip install python-jobspy")
-    store = Store(args.data)
+    from .transfer import active_directory
+    store = Store(active_directory(args.data))
     profile = store.setting("profile")
     if not profile["roles"]:
         parser.error("Complete your profile in JobPilot first; role suggestions are generated at runtime")
@@ -37,7 +38,7 @@ def main():
                 if not row.get("title") or not row.get("company") or not row.get("job_url"):
                     continue
                 try:
-                    added += store.upsert_jobs([{"title": row["title"], "company": row["company"],
+                    added += store.import_discovered_jobs([{"title": row["title"], "company": row["company"],
                         "url": row.get("job_url_direct") or row["job_url"], "location": row.get("location", ""),
                         "description": row.get("description", ""), "source": row.get("site", "jobspy"),
                         "posted_at": row.get("date_posted", ""), "remote": row.get("is_remote", False)}])

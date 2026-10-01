@@ -22,6 +22,7 @@ from . import latex_resume
 from . import yc
 from .networking import Networking, drafts
 from . import resume_import
+from . import transfer
 from .gmail import Gmail, DEFAULT_QUERY
 from .mail_tracking import MailTracker
 
@@ -31,6 +32,9 @@ ROOT = Path(__file__).resolve().parent.parent
 class App:
     def __init__(self, store):
         self.store = store
+        self.data_root = store.directory.resolve()
+        self.access_lock = threading.RLock()
+        self.pending_restore = None
         self.workspace = Workspace(store)
         self.gmail = Gmail(store.directory)
         self.mail = MailTracker(store)
@@ -66,7 +70,7 @@ class App:
                                 errors.extend(result['errors'])
                             else:
                                 jobs = result
-                            added += self.store.upsert_jobs(jobs)
+                            added += self.store.import_discovered_jobs(jobs)
                             total += len(jobs)
                             with self.store.db() as db:
                                 db.execute("UPDATE sources SET last_sync=?,count=?,error=NULL WHERE id=?", (now(), len(jobs), source["id"]))
@@ -150,7 +154,7 @@ class App:
         def run():
             try:
                 result = yc.discover()
-                added = self.store.upsert_jobs(result['jobs'])
+                added = self.store.import_discovered_jobs(result['jobs'])
                 self.record_yc(result)
                 self.yc_status['running'] = True
                 self.yc_status['message'] = 'Loading complete requirements for up to 10 profile matches…'
@@ -169,18 +173,19 @@ class App:
     def scheduler(self):
         while True:
             time.sleep(30)
-            mail_settings = self.store.setting('gmail_sync')
-            last_mail = mail_settings.get('last_run')
-            if mail_settings['enabled'] and self.gmail.status()['connected'] and (not last_mail or
-                    (datetime.now(timezone.utc)-datetime.fromisoformat(last_mail)).total_seconds() >= mail_settings['interval_minutes']*60):
-                self.mail.sync(self.gmail)
-            config = self.store.setting("automation")
-            if not config["enabled"]:
-                continue
-            last = config.get("last_run")
-            due = not last or (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() >= config["interval_hours"] * 3600
-            if due:
-                self.sync(config["prepare_matches"])
+            with self.access_lock:
+                mail_settings = self.store.setting('gmail_sync')
+                last_mail = mail_settings.get('last_run')
+                if mail_settings['enabled'] and self.gmail.status()['connected'] and (not last_mail or
+                        (datetime.now(timezone.utc)-datetime.fromisoformat(last_mail)).total_seconds() >= mail_settings['interval_minutes']*60):
+                    self.mail.sync(self.gmail)
+                config = self.store.setting("automation")
+                if not config["enabled"]:
+                    continue
+                last = config.get("last_run")
+                due = not last or (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() >= config["interval_hours"] * 3600
+                if due:
+                    self.sync(config["prepare_matches"])
 
 
 def handler_class(app):
@@ -232,6 +237,10 @@ def handler_class(app):
             self.dispatch("POST")
 
         def dispatch(self, method):
+            with app.access_lock:
+                return self.dispatch_locked(method)
+
+        def dispatch_locked(self, method):
             try:
                 if not self.allowed_host():
                     return self.send({"error": "Invalid local host"}, 403)
@@ -261,7 +270,7 @@ def handler_class(app):
                 data = {}
                 if method == "POST":
                     length = int(self.headers.get("Content-Length", 0))
-                    if length < 0 or length > 8 * 1024 * 1024:
+                    if length < 0 or length > (90 if path == '/api/backup/preview' else 8) * 1024 * 1024:
                         return self.send({"error": "Request too large"}, 413)
                     data = json.loads(self.rfile.read(length) or "{}")
                     if not isinstance(data, dict):
@@ -379,6 +388,45 @@ def handler_class(app):
                     return self.send(app.workspace.save_queue(data['ids']))
                 if method == "GET" and path == "/api/calendar.ics":
                     return self.send(app.workspace.calendar(), content_type='text/calendar; charset=utf-8', filename='jobpilot-planner.ics')
+                if method == 'POST' and path == '/api/backup/preview':
+                    directory, summary = transfer.stage_backup(data.get('base64'), app.data_root, app.store)
+                    try:
+                        candidate = App(Store(directory))
+                        candidate.store.bootstrap()
+                        candidate.workspace.state()
+                    except Exception:
+                        import shutil
+                        shutil.rmtree(directory, ignore_errors=True)
+                        raise ValueError('Backup contains unsupported workspace data') from None
+                    if app.pending_restore:
+                        import shutil
+                        shutil.rmtree(app.pending_restore['directory'], ignore_errors=True)
+                    restore_id = secrets.token_urlsafe(24)
+                    app.pending_restore = {'id': restore_id, 'directory': directory, 'candidate': candidate}
+                    return self.send({**summary, 'restore_id': restore_id})
+                if method == 'POST' and path == '/api/backup/restore':
+                    pending = app.pending_restore
+                    if not pending or data.get('restore_id') != pending['id'] or data.get('confirm') is not True:
+                        raise ValueError('Preview a backup and confirm restoration first')
+                    if any(lock.locked() for lock in (app.sync_lock, app.yc_lock, app.mail.lock, app.networking.lock, app.pdf_lock)):
+                        raise ValueError('Wait for discovery, email sync, networking, or PDF generation to finish, then retry.')
+                    root = app.data_root
+                    backups = root / 'backups'
+                    backups.mkdir(exist_ok=True, mode=0o700)
+                    backup = backups / ('before-restore-' + secrets.token_hex(8) + '.zip')
+                    backup.write_bytes(app.workspace.backup())
+                    backup.chmod(0o600)
+                    candidate = pending['candidate']
+                    candidate.data_root = root
+                    candidate.access_lock = app.access_lock
+                    pointer = root / 'active-workspace.json'
+                    temporary = root / 'active-workspace.tmp'
+                    temporary.write_text(json.dumps({'directory': str(pending['directory'].relative_to(root))}))
+                    temporary.chmod(0o600)
+                    temporary.replace(pointer)
+                    app.__dict__.update(candidate.__dict__)
+                    app.networking.key_provider = lambda: app.firecrawl_key
+                    return self.send({'ok': True, 'previous_backup': str(backup)})
                 if method == "GET" and path == "/api/backup.zip":
                     return self.send(app.workspace.backup(), content_type='application/zip', filename='jobpilot-backup.zip')
                 if method == "POST" and path == "/api/bundles":
@@ -559,7 +607,8 @@ def main():
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--data", default=str(ROOT / "data"))
     args = parser.parse_args()
-    app = App(Store(args.data))
+    app = App(Store(transfer.active_directory(args.data)))
+    app.data_root = Path(args.data).resolve()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_class(app))
     threading.Thread(target=app.scheduler, daemon=True).start()
     print(f"JobPilot is running at http://127.0.0.1:{args.port}", flush=True)

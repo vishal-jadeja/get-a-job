@@ -27,6 +27,7 @@ ALIASES = {
 }
 
 
+@lru_cache(maxsize=4096)
 def canonical(value):
     value = value.strip().casefold()
     for key, aliases in ALIASES.items():
