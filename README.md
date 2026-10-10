@@ -1,292 +1,80 @@
 # JobPilot
 
-A free, local job-search workspace: **career profile → suggested roles → matching jobs → tailored materials → your approval → browser-assisted applications → outcome analytics**.
+**A free, local-first job-search workspace.** Turn your career profile into matched roles, tailored résumés, reviewed applications, and honest outcome analytics — all on your own machine.
 
-The core app uses Python's standard library, SQLite, and plain JavaScript. No subscription, paid API, cloud database, Docker, or LLM is required. There is no tracking or external font dependency.
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Zero core dependencies](https://img.shields.io/badge/core%20dependencies-0-success)
+![SQLite](https://img.shields.io/badge/storage-SQLite-003B57?logo=sqlite&logoColor=white)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
-## Run
+![JobPilot Today dashboard](docs/images/overview.png)
 
-Requires Python **3.10+**. From this folder:
+## Why JobPilot
 
-```sh
-python3 -m jobpilot
+- **Private by design.** Standard-library Python, SQLite, and plain JavaScript. No account, cloud database, paid API, LLM, or tracking. Binds to `127.0.0.1` only.
+- **Evidence over invention.** Résumés, cover letters, and outreach drafts are built from your own saved skills, bullets, and projects. Nothing is fabricated.
+- **Human in the loop.** Every application is prepared → reviewed → explicitly approved. Profile or posting edits invalidate stale approvals. Nothing sends messages for you.
+- **Honest numbers.** Analytics count only confirmed submissions. Opening or filling a form is never treated as applying.
+
+## How it works
+
+```text
+Career profile (or résumé import) → Suggested roles
+  → Discovery: Greenhouse · Lever · Ashby · YC · imports
+  → Transparent match score → Tailored LaTeX résumé + cover letter
+  → Your approval → Browser-helper autofill → Outcome tracking (manual or Gmail)
 ```
 
-Open **http://127.0.0.1:8765**. Another port or data directory:
+| Discover & score jobs | Application pipeline | Outcome analytics |
+| --- | --- | --- |
+| ![Discover jobs](docs/images/discover.png) | ![Applications board](docs/images/applications.png) | ![Analytics](docs/images/analytics.png) |
 
-On Windows, use `python -m jobpilot` from PowerShell. No dependency installation is needed for the core app.
+## Quick start
+
+Requires Python 3.10+. No install step.
 
 ```sh
-python3 -m jobpilot --port 8766 --data /path/to/private-data
+python -m jobpilot            # open http://127.0.0.1:8765
+python -m jobpilot --port 8766 --data ./private-data
+python tests/serve_ui.py      # disposable demo with fictional jobs
 ```
 
-Keep the server running for scheduled discovery. Each data directory is a separate single-person workspace. This is a local personal tool, not a public multi-user SaaS; it has no account system.
+Optional: [Tectonic](https://tectonic-typesetting.github.io/) for local PDF résumés, Poppler `pdftotext` for PDF résumé import.
 
-## Use the website
+## Features
 
-1. **Career profile:** enter contact details, skills, technologies, work bullets, projects, education, certifications, achievements, languages, and additional résumé text. Include names, dates, links, and outcomes within the bullets.
-2. Leave target roles blank to infer up to five role families from your evidence, or specify your own. Suggestions recalculate whenever the profile is saved. Add advertised location filters and exclusions.
-3. Upload your default résumé and any role-specific files in the **Résumé library**. Choose an attachment in each job's workspace. Generated drafts do not silently replace uploaded files.
-4. Click **Save & find my jobs**. The app fetches the configured companies' Greenhouse, Lever, Lever EU, and Ashby feeds, deduplicates jobs, and scores them against your current profile.
-5. In **Discover jobs**, select jobs and prepare them in batches. Open a job to review its fit, missing skill evidence, résumé draft, cover letter, and source posting. Download its ZIP; `resume.html` can be printed to PDF from your browser.
-6. Approve reviewed applications individually or in a selected batch. Under **Applications**, select approved jobs and click **Queue selected**. Connect the browser helper from **Automation** and run that queue.
-7. Track results under **Applications**. Record manual submission confirmations, interviews, offers, or rejections. **Analytics** shows confirmed volume, lifetime response/interview rates, weekly submissions, source performance, and the event log. Recorded outcomes remain counted after rejection or archiving; the pipeline separately shows current stages.
-8. Optionally connect Gmail under **Email updates**. Sync matching emails, review their proposed application/outcome matches, and confirm the updates to your tracker.
-
-Changes to a profile, résumé, or posting invalidate pending materials and approvals. Submitted applications retain their history. The helper claims each approved record atomically to prevent concurrent duplicate attempts.
-
-## Manage the whole search
-
-- **Today:** weekly application goal, pending tasks, shortlisted priorities, deadlines, and recent activity. Only confirmed submissions count toward the goal.
-- **Discover:** shortlist jobs, add tags and priorities, filter by source/status/tag, sort by match/date/deadline/company, and save searches. Select 2–4 jobs to compare them side by side.
-- **Applications:** board or list view, batch preparation and approval, selected-material ZIP downloads, and an explicit helper queue. Archive and restore applications without losing submitted history.
-- **Each job workspace:** compensation notes, application deadline, next steps, attachment selection, editable résumé/cover-letter drafts, and revision history. Editing materials clears approval.
-- **Planner:** dated tasks, follow-ups, and interviews with optional local time; mark complete or reopen. Export open dated tasks to an `.ics` calendar. For notifications, import the file into your calendar app; JobPilot does not send background notifications.
-- **Contacts:** recruiter/referral contact records, conversation notes, editable outreach drafts, and follow-up tasks. Drafts are copied for you to send; JobPilot does not send messages.
-- **Interview prep:** prompts grounded in recognized skills, skill gaps, questions to ask, and persistent preparation notes.
-
-## Different résumés for different roles
-
-### Import career evidence from a résumé
-
-Under **Career profile → Import your résumé into your profile**, choose a PDF,
-DOCX, TXT, or Markdown file, or extract the saved default attachment. Extraction
-runs locally. Review the proposed fields and complete extracted text, edit any
-mistakes, select the fields to merge, and click **Merge selected details**.
-
-List fields preserve existing entries; skill aliases are deduplicated. Existing
-contact fields are unselected by default so they are not silently overwritten.
-Wrapped PDF bullets are joined, and adjacent role/project headers remain attached
-when those bullets are ranked for applications. Unknown extra context is retained
-as additional résumé text. Years of experience, legal name parts, work authorization,
-and location eligibility are not guessed. A selected file becomes the default
-attachment only when that option is checked.
-
-PDF extraction uses installed `pdftotext` (Poppler), or optional `pypdf` in a
-separate process with a timeout. If neither is installed, install one or paste text.
-DOCX/TXT/Markdown extraction uses the standard library. Files are limited to 5 MB;
-PDF extraction reads at most 30 pages. Image-only/scanned PDFs need OCR first.
-Columns and unusual section headings still require review.
-
-### Tailor by role and posting
-
-1. Save your complete career evidence in **Career profile**.
-2. Under **Role-focused résumés**, create profiles such as Backend Engineering and Frontend Engineering. Enter target job titles, a truthful headline, relevant skills, experience, and projects, and limits for each section.
-3. Prepare jobs individually or in batches. The app chooses a role profile by title-word overlap (at least 60% of a target title's words), or falls back to your general profile. Ties use the first stored matching profile. You can override this selection per application.
-4. Within that profile, each posting's requirements rank the saved skills, experience bullets, and projects. No missing skill, achievement, or employment claim is invented. Unchecked entire evidence sections use the full saved list.
-5. Review the result and the displayed tailoring profile; edit the drafts if needed. Preparation automatically creates LaTeX using an adaptation of [Jake's Resume](https://www.overleaf.com/latex/templates/jakes-resume/syzfjbzwjncs). Use **Download LaTeX** for Overleaf, **Download PDF** for local compilation, or **Generate PDFs** for up to 20 selected applications. ZIPs include `resume.tex`, the template license, and a PDF when generated.
-6. Click **Use tailored PDF as attachment** to compile/select the job-specific PDF without losing your edited draft. Review and approve again. You can also choose a separately uploaded file from **Résumé library**. The selected attachment is always shown separately.
-
-Local PDF compilation requires [Tectonic](https://tectonic-typesetting.github.io/en-US/install.html). Put its executable on PATH, under `.tools/tectonic/`, or set `JOBPILOT_TECTONIC` to its full path. First use downloads LaTeX packages; later runs reuse the cache. Compilation runs locally with untrusted-input mode, escaped applicant text, and a timeout. No applicant data is sent to Overleaf or a remote compiler. Without Tectonic, download the `.tex` source or print `resume.html` from a browser. Long profiles may produce multiple pages; review the PDF and reduce the role profile's evidence limits if needed.
-
-Role profiles control draft content; the résumé library contains actual attachment files. Updating role profiles invalidates pending drafts/approvals. Submitted drafts remain unchanged. If selected career evidence has been removed or rewritten, update the role profile before preparing again.
-
-## What is automated
-
-| Step | Behavior |
+| Area | What you get |
 | --- | --- |
-| Role suggestions | Local evidence matching against an editable catalog of 30 role families; runtime, not hardcoded to one applicant |
-| Discovery | Read-only public ATS APIs; scheduled refresh, retries for selected transient failures, per-source errors |
-| Matching | Transparent score, skill coverage, evidence, exclusions, location checks, posting-age checks |
-| Preparation | Per-role and per-posting résumé/cover-letter drafts, editable with revision history |
-| Autofill | Standard contact fields, explicitly saved first/last names, per-job résumé attachment, exact saved screening answers |
-| Submission | Experimental standard **Lever** adapter, only for approved records and with a separate explicit helper toggle |
-| Tracking | Confirmations, review-needed and unknown outcomes, complete per-job event histories |
-| Analytics | Recorded outcomes and confirmed submissions; no assumption that opening or filling a form means applying |
+| **Profile** | Local résumé import (PDF/DOCX/TXT/MD) with field-by-field review before merge |
+| **Discovery** | Public Greenhouse, Lever, Ashby, and YC engineering listings; JSON, Firecrawl, and JobSpy imports |
+| **Matching** | 0–100 score from title overlap, skill evidence, location, and posting age — inspectable in [`jobpilot/matching.py`](jobpilot/matching.py) |
+| **Tailoring** | Role-focused résumé profiles, per-posting ranking, [Jake's Resume](https://www.overleaf.com/latex/templates/jakes-resume/syzfjbzwjncs) LaTeX output, revision history |
+| **Pipeline** | Board/list views, batch prepare/approve, shortlists, tags, deadlines, side-by-side compare |
+| **People** | Public-search candidates for peers and recruiters, contacts, editable evidence-based outreach drafts |
+| **Tracking** | Planner, `.ics` export, interview prep, optional read-only Gmail sync with review-before-apply |
+| **Automation** | Chromium helper ([`extension/`](extension)) autofills standard ATS fields; experimental Lever submit is opt-in and approval-gated |
+| **Data** | JSON/CSV export, full SQLite backup, workspace transfer |
 
-Autofill on Greenhouse/Ashby is a generic standard-field adapter, not comprehensive platform support. Enter first/last names explicitly in the profile; the helper never splits a full name to guess them. Custom widgets, legal or demographic answers, CAPTCHA, login, and multi-step forms may need manual handling. Unknown answers are left blank. No CAPTCHA bypass, stealth tooling, password storage, or recruiter-email sending is included.
+## Limits worth knowing
 
-The browser helper has **not been validated by submitting real applications**. Its submit gate and state handling are tested; live employer forms vary. Start with autofill-only mode. For a form you submit manually, use **Confirm submitted manually** and record its actual confirmation in the app.
-
-Immediately before an automatic submit click, the helper checks the filled form again. Changed questions, answers, attachments, validation, or destinations stop the attempt for review. A filled form can produce at most one automatic click.
-
-If a click is sent but no recognizable confirmation appears, the status becomes `submission_unknown`. It is excluded from confirmed analytics and cannot be automatically requeued. Check the employer portal or confirmation email, then record the verified result. Unfinished browser claims expire after 15 minutes into review-needed or unknown state.
-
-## Match percentages
-
-**Overall match, 0–100:** up to 45 points for normalized target-title overlap,
-40 for weighted requirement coverage, 10 for an advertised location match, and
-5 for a verified publication in the last seven days. A detected experience
-shortfall subtracts 10 points. Required skill groups weigh 3, general mentions 2,
-and preferred skills 1. Clear “A or B” lists count as one alternative requirement.
-
-The matcher normalizes common aliases such as Postgres/PostgreSQL, ReactJS/React,
-K8s/Kubernetes, and AWS/Amazon Web Services. It distinguishes headings such as
-“Must-haves” and “Strong plus,” and does not turn “up to two years” into a minimum.
-The requirement table shows the source wording behind each result. These remain
-heuristics: mixed AND/OR requirements and unfamiliar phrasing need review.
-
-Experience, seniority, education, and work-authorization language produce explicit
-checks. If you state that you need sponsorship and a posting explicitly says it
-is unavailable, that conflict blocks approval. The app does not establish legal
-eligibility or answer country-specific authorization questions automatically.
-
-**Skill coverage:** recognized skills in the posting supported by your profile ÷ all recognized skills in the posting. Skills come from the role catalog and your own skills. Missing evidence is displayed separately. Optional skill mentions may be included; this does not parse every requirement.
-
-Neither percentage is a probability of hiring, an employer's ATS score, or a complete measure of eligibility. Work authorization, geography, required credentials, nuanced experience, and unrecognized requirements need review. Remote does not imply worldwide eligibility. Unknown publication dates are shown as unknown; Greenhouse's update timestamp is not treated as publication.
-
-The rule-based matcher is deliberately inspectable and free. It does not understand all synonyms, infer a complete career path, or replace a recruiter. Edit `jobpilot/roles.py` and `jobpilot/skills.py` to extend role families, reference skills, and aliases.
-
-## Read-only Gmail tracking
-
-1. In your own Google Cloud project, enable **Gmail API**, configure the OAuth
-   consent screen, and create an OAuth client of type **Desktop app**. If the app
-   is in testing, add your Gmail address as a test user.
-2. Download the OAuth client JSON. In **Email updates**, choose that file.
-3. Click **Connect with Google**, then **Continue to Google consent**. Approve
-   the read-only scope yourself in your browser. The loopback callback returns
-   you to JobPilot; refresh Email updates if needed.
-4. Click **Sync Gmail**, or enable periodic sync while the server is running.
-   The default query looks for application/interview messages from the last 90 days.
-   Adjust the query to a particular company or period when needed.
-5. Inspect the original email or local excerpt, select the correct job and outcome,
-   then confirm the update. Duplicate emails do not duplicate tracker events;
-   ambiguous matches are not automatically assigned. Dismiss irrelevant results.
-
-The connector uses Google's [Desktop OAuth flow with PKCE](https://developers.google.com/identity/protocols/oauth2/native-app)
-and only the `gmail.readonly` scope. It does not send mail, mark messages read,
-delete mail, download attachments, or modify the mailbox. Classification happens
-locally; no email content is sent to Firecrawl or an AI provider.
-
-Each sync retrieves up to 50 matching messages. The review screen shows up to 200
-recent suggestions. For a larger backlog, narrow the Gmail query by date/company
-to import it in batches. Scheduled sync defaults to off and supports 15–1440 minute
-intervals. Suggestions always require review; there are no silent outcome changes.
-Archived/running applications and later stages are protected from accidental
-regression. If an email is the first evidence of submission, its receipt time is
-recorded as the confirmation time, not a verified submit-click time.
-
-OAuth client configuration and refresh tokens are stored in the private local
-`data/gmail-credentials.json` file with owner-only permissions on POSIX systems.
-They are excluded from the app's backup ZIP and JSON exports. Email excerpts and
-review history are in SQLite and included in a full backup. **Disconnect locally**
-removes the refresh token; you can additionally revoke access in Google Account
-settings. After restoring a backup, reconnect Gmail. A testing OAuth app or revoked
-grant may require reconnection.
-
-Live Gmail access cannot be verified until you configure your OAuth client and
-complete consent. Automated tests exercise simulated Google responses and local
-email-review flows; they do not access a real mailbox.
-
-## Expand discovery
-
-Automatic company-board, YC, and JobSpy imports keep engineering roles aligned with your saved target titles, skill evidence, minimum match score, and profile exclusions. With experience entered, senior titles (below five years) and detected experience requirements above your profile are excluded. YC summaries are provisional until full descriptions are loaded. These filters are heuristics; review each posting. Manual imports remain available.
-
-The nine starter company boards plus YC's public engineering source are examples, not the entire job market. Add employer slugs under **Job sources**, or import arbitrary postings through **Add job**. A sample import schema is in [`examples/jobs.json`](examples/jobs.json). JSON import accepts up to 5,000 records per request.
-
-### YC engineering startups
-
-Open **YC startups → Refresh YC jobs**, or run ordinary discovery with the YC source enabled. The free connector reads YC's public engineering listing and linked location pages, deduplicates postings, and groups them by company. No API key or YC account is needed for these pages.
-
-The startup list sorts by newer YC batch, then the listing's reported hiring activity. “Trending” has no universal verified ranking; this is an explicit prioritization rule. Search by company, role, location, or batch, and optionally show only current/previous-year batches. Batch and activity values are reported by YC, not independently verified. A relative activity value is never fabricated into a publication date.
-
-Public listing summaries may omit requirements. They are marked **Summary only**, do not receive a skill-coverage percentage, and cannot be used to prepare applications until the complete job description is loaded. Discovery loads full descriptions for up to 10 summaries that meet your profile's preliminary filters/score; **Load full job** handles the rest. Loading requirements may change the match score and invalidate previous materials if the posting changed.
-
-The YC page shows listings from the last successful scan. Previously imported jobs remain in your tracker even if they disappear from that public list. Check the original page for current availability. Public pages are a subset of YC's signed-in directory: this is not a promise to cover every YC startup or every vacancy. On 2026-09-29 a live read-only scan found 148 engineering postings across 86 companies on nine public pages.
-
-### Company LinkedIn, peers, recruiters, and outreach
-
-Each job now has **People behind this opportunity**. Use **Find / refresh contacts** to discover company LinkedIn candidates, up to three same-role peer candidates and three HR/recruiting candidates from public search results. YC postings can also supply company/founder links directly. Founder contacts are clearly labeled separately from engineers or recruiters.
-
-- Automatic research is enabled by default after imports and suitable-match discovery, with a cap of **five company/role lookups per run**. Change the cap (1–20) or turn it off under **Automation**. Each lookup makes up to three Firecrawl search requests. Jobs beyond the cap still have manual search links and local outreach drafts; research them individually from the job workspace.
-- Results are cached for seven days; unsuccessful lookups expire after one hour. An explicit refresh can run sooner. Failed refreshes retain earlier candidates with their original-results date.
-- Only public company names and job titles go to search. Your profile, résumé, and generated outreach are not sent to Firecrawl or LinkedIn. Guest search may be limited; a configured Firecrawl key uses its account credits. Manual links and local message generation remain free without an API.
-- Cards show the source URL, snippet, lookup date, and provenance. Search results are **candidates, not verified current employees**. Similar company names and old profiles require your review. No names, employers, or LinkedIn URLs are invented to fill missing results.
-- **Save contact** adds the person to Contacts with the linked application and source notes, without duplicating the same person/job combination.
-- **Draft personal message** produces an editable connection note (up to 300 characters) and a short job-specific message. Both use matching skills and a verbatim excerpt of saved experience/project evidence. You can inspect that evidence, edit the draft, and copy it. Your LinkedIn interface may have a smaller limit; adjust the note there.
-- Saved contacts linked to a job also get these personalized drafts from **Contacts → Draft outreach**. Nothing sends messages, connection requests, or recruiter emails automatically.
-
-The connector does not log in to LinkedIn or scrape its profile pages. It uses public web-search snippets and links explicitly published on YC pages.
-
-### Optional Firecrawl search and URL import
-
-In Discover, **Search the web** sends your typed query to Firecrawl and shows up to 10 web results. **Preview import** extracts a single posting. Alternatively, paste a URL in **Add job** and click **Import from URL with Firecrawl**. Review and correct the extracted fields before saving. Search/extraction do not apply for jobs.
-
-Set an API key in **Automation → Firecrawl web discovery** for the current server session, or configure `FIRECRAWL_API_KEY` in the server environment before starting JobPilot. Keys entered in the app remain in server memory and are never exported. Guest search and posting extraction were verified without a key on 2026-09-28; guest access can still be unavailable or rate-limited. If a guest request is rejected, configure a key or use manual import. Account credits and service limits apply.
-
-Only the posting URL or explicit search query is sent to Firecrawl. Applicant profiles and résumé files are not sent. Manual import and public ATS discovery work without Firecrawl. This integration uses the [v2 single-page JSON extraction API](https://docs.firecrawl.dev/features/llm-extract) and [v2 search API](https://docs.firecrawl.dev/features/search). HTTPS uses the same certificate verification as ATS discovery, including the system CA bundle fallback for macOS Python installations missing their default bundle.
-
-For broader searches, the optional [JobSpy](https://github.com/speedyapply/JobSpy) importer reads roles and location from the saved profile:
-
-```sh
-python3 -m venv .venv
-source .venv/bin/activate
-pip install python-jobspy
-python -m jobpilot.jobspy_import --country india --sites indeed --limit 30
-```
-
-Use `--location` to override the profile location. Board access and library compatibility can change; blocked sources report errors and are not bypassed. This optional integration is separate from the dependency-free core and was not live-tested with JobSpy installed. Consult each site's rules before enabling a scraper. JobSpy is discovery, not submission.
-
-No system can promise to discover **every** job or reliably submit **every** employer's application. The research rationale and coverage comparison are in [`docs/RESEARCH.md`](docs/RESEARCH.md).
-
-## Browser helper setup
-
-1. In Automation, download and unzip the helper, or use the repository's `extension/` folder.
-2. In a Chromium browser, open `chrome://extensions` / `brave://extensions` / `edge://extensions`.
-3. Enable Developer mode and choose **Load unpacked**, selecting the extension folder.
-4. Open the helper, enter the local server URL, and paste the private connection token copied from Automation.
-5. Click Connect. Approve reviewed jobs in the dashboard, then start a batch. Job-site permissions are requested when starting a batch, limited to supported ATS hosts.
-
-By default, the helper fills forms and stops for final review. The optional Lever auto-submit toggle only submits already-approved, recognized complete forms. Keep the browser and server open. **Stop** prevents subsequent submissions; it cannot undo a request already sent.
-
-The helper also has **Preview current posting**, using user-triggered `activeTab` access. Open a public HTTPS posting, preview captured details, correct the title/company/description, then save it. It reads posting text and structured JobPosting data, not form input values. Capture does not require Firecrawl. After updating the repository, reload the unpacked extension to use the new helper version.
-
-## Data, exports, and privacy
-
-- SQLite database: `data/jobpilot.sqlite3`; default résumé: `data/resume.bin`; variant attachment files are stored as SQLite blobs. All remain local and are excluded from Git.
-- The local server binds only to `127.0.0.1`, validates host/origin headers, and uses a random bearer token for API requests. Keep the connection token private.
-- Your résumé and profile fields leave your computer only when the helper fills an employer's application page. A website can observe field input before submission.
-- Export JSON from the header for profile/jobs/events/planning data, or CSV from Applications/Analytics with tracking details. JSON is an export, not a complete backup; it excludes tokens, attachment binaries, and historical material revisions.
-- **Export / import → Export full backup ZIP** saves the database, default résumé, résumé library, drafts, application history, tasks, contacts, and email review history. It excludes Gmail credentials and the browser connection token. Backups contain private information and are not encrypted.
-- To move computers, install/run the same JobPilot version on the destination, click **Export / import**, select the ZIP (up to 64 MB compressed / 256 MB expanded), review its profile and counts, then click **Restore this workspace**. Automation has the same controls. JSON/CSV exports are for inspection, not restoration.
-- Import switches to a separate restored workspace, without merging. The previous workspace remains intact and a ZIP is saved under the original data directory's `backups/`. The active folder is recorded in `active-workspace.json` and survives server restarts. Re-import the saved ZIP to switch back. Keep the original data directory and its restored subfolders together.
-- Reconnect Gmail and the browser helper after importing. Pending approvals require another review, the helper queue is empty, and scheduled discovery/email sync are disabled. Confirmed submission history remains intact. Interrupted submissions become unknown outcomes rather than being retried.
-- This is a snapshot transfer, not automatic multi-computer synchronization. A manual restore is also available: stop the server, extract the ZIP into a new private folder, and run `python -m jobpilot --data "path/to/folder"`.
-
-- Gmail can import outcome suggestions into a review queue. Other mailbox providers
-  are not integrated; Gmail suggestions and manually entered outcomes require review.
+- Match score is not a hiring probability or an employer's ATS score.
+- The browser helper has not been validated against live submissions. Start in autofill-only mode; CAPTCHA, logins, and custom widgets need you.
+- Contact search returns *candidates* from public results, not verified employees.
+- No discovery tool finds every job. Add your own boards under **Job sources**.
 
 ## Tests
 
-Python tests use the standard library. Node 18+ is only needed for helper tests, not for running the app.
-
 ```sh
-python3 -m unittest discover -s tests -v
-node --test tests/*.test.js
+python -m unittest discover -s tests -v
+node --test tests/*.test.js            # Node 18+, helper only
 ```
 
-To also check real résumé PDF compilation and extracted text, install Tectonic
-and Poppler (`pdftotext`), then run:
+## Docs
 
-```sh
-JOBPILOT_TEST_PDF=1 python3 -m unittest discover -s tests -q
-```
+- [User guide](docs/GUIDE.md) — full walkthrough, scoring rules, Gmail setup, helper setup, privacy, backups
+- [Research](docs/RESEARCH.md) — design rationale and coverage comparison
+- [Verification](docs/VERIFICATION.md) — what is fixture-tested vs. live-checked
 
-This optional test is skipped by default. A fictional résumé for visual review
-can be generated with `python3 tests/render_resume.py`; see
-[`docs/VERIFICATION.md`](docs/VERIFICATION.md) for the current checkpoint.
+## License
 
-The suite covers matching, skill gaps, runtime role suggestions, geography, stale postings, source normalization/pagination, URL handling, evidence-preserving materials, transactional deduplication, approval invalidation, concurrent claims, uncertain submission recovery, authenticated HTTP workflows, exports, and helper submission gates.
-
-It also covers role-specific tailoring, résumé selection, draft revisions, archive restoration, persistent planning records, calendar output, backup restoration/token removal, explicit queues, Firecrawl response parsing, and credential exclusion. See [verification notes](docs/VERIFICATION.md) for the distinction between fixture tests, browser QA, and live external checks.
-
-For a disposable browser-test workspace with fictional jobs:
-
-```sh
-python tests/serve_ui.py
-```
-
-Open `http://127.0.0.1:18765`. This uses a temporary database, not your normal workspace.
-
-## Project layout
-
-```text
-jobpilot/        SQLite store, matcher, source adapters, HTTP server, scheduler
-static/          Responsive dashboard and onboarding
-extension/       Chromium browser helper, no bundled third-party dependencies
-tests/           Python integration/unit tests and Node helper tests
-docs/            Research and implementation decisions
-examples/        Import schema example
-```
-
-MIT licensed. The adapted Jake's Resume LaTeX template is attributed to Jake Gutierrez, based on sb2nov/resume; its MIT license is included in `jobpilot/templates/LICENSE-jake.txt` and generated LaTeX/bundles. Other researched repositories were not vendored.
+MIT. The adapted Jake's Resume template (Jake Gutierrez, based on sb2nov/resume) ships with its MIT license in [`jobpilot/templates/LICENSE-jake.txt`](jobpilot/templates/LICENSE-jake.txt).
